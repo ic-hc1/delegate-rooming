@@ -23,6 +23,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - name: Guard against publishing spreadsheets
         run: |
           if find . -path ./.git -prune -o \( -name '*.xlsx' -o -name '*.xlsm' -o -name '*.csv' \) -print | grep -q .; then
