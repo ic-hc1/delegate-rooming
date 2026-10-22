@@ -1,0 +1,10 @@
+# Never commit the source spreadsheets: they contain delegate names and codes.
+*.xlsx
+*.xlsm
+*.csv
+input/
+~$*
+
+__pycache__/
+*.pyc
+.DS_Store

@@ -1,0 +1,36 @@
+name: Deploy dashboard to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - name: Guard against publishing spreadsheets
+        run: |
+          if find . -path ./.git -prune -o \( -name '*.xlsx' -o -name '*.xlsm' -o -name '*.csv' \) -print | grep -q .; then
+            echo "Spreadsheet files must not be published. Remove them from the repo." >&2
+            exit 1
+          fi
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+      - id: deployment
+        uses: actions/deploy-pages@v4

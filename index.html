@@ -1,0 +1,782 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Delegate Rooming Monitor</title>
+<meta name="description" content="Aggregate hotel rooming monitoring across all delegate hotels. Counts only, no personal data.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232a78d6'/%3E%3Cpath d='M8 22V12l8-5 8 5v10' fill='none' stroke='%23fff' stroke-width='2.5' stroke-linejoin='round'/%3E%3Crect x='13' y='15' width='6' height='7' fill='%23fff'/%3E%3C/svg%3E">
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7;
+    --surface: #fcfcfb;
+    --surface-2: #f3f3f0;
+    --ink: #0b0b0b;
+    --ink-2: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --axis: #c3c2b7;
+    --border: rgba(11,11,11,0.10);
+    --series-1: #2a78d6;
+    --series-2: #eb6834;
+    --series-3: #1baf7a;
+    --series-4: #eda100;
+    --track: #b7d3f6;
+    --track-2: #cde2fb;
+    --de-emph: #c3c2b7;
+    --good: #0ca30c;
+    --good-text: #006300;
+    --warning: #fab219;
+    --critical: #d03b3b;
+    --heat-0: var(--surface-2);
+    --heat-1: #cde2fb; --heat-2: #9ec5f4; --heat-3: #6da7ec; --heat-4: #3987e5;
+    --heat-5: #256abf; --heat-6: #184f95; --heat-7: #0d366b;
+    --heat-ink-from: 4; /* steps >= this use white text */
+    --shadow: 0 1px 2px rgba(11,11,11,0.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --page: #0d0d0d; --surface: #1a1a19; --surface-2: #232322;
+      --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+      --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+      --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+      --track: #184f95; --track-2: #143d73; --de-emph: #4a4a47;
+      --good-text: #0ca30c;
+      --heat-1: #0d366b; --heat-2: #184f95; --heat-3: #256abf; --heat-4: #3987e5;
+      --heat-5: #6da7ec; --heat-6: #9ec5f4; --heat-7: #cde2fb;
+      --shadow: none;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --surface-2: #232322;
+    --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+    --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+    --track: #184f95; --track-2: #143d73; --de-emph: #4a4a47;
+    --good-text: #0ca30c;
+    --heat-1: #0d366b; --heat-2: #184f95; --heat-3: #256abf; --heat-4: #3987e5;
+    --heat-5: #6da7ec; --heat-6: #9ec5f4; --heat-7: #cde2fb;
+    --shadow: none;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--page); color: var(--ink);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  a { color: inherit; }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 20px 16px 48px; }
+
+  /* Header */
+  header.top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 24px; margin-bottom: 16px; }
+  header.top h1 { font-size: 22px; font-weight: 650; margin: 0 0 2px; letter-spacing: -0.01em; }
+  header.top .meta { color: var(--ink-2); font-size: 13px; }
+  header.top .meta b { color: var(--ink); font-weight: 600; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .controls label { color: var(--ink-2); font-size: 13px; }
+  select, button.btn {
+    font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 7px 10px; min-height: 36px; box-shadow: var(--shadow); cursor: pointer;
+  }
+  select { min-width: 220px; max-width: 100%; }
+  button.btn:hover, select:hover { background: var(--surface-2); }
+  button.btn[aria-pressed="true"] { background: var(--surface-2); border-color: var(--axis); }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); box-shadow: var(--shadow); }
+  .seg button { font: inherit; color: var(--ink-2); background: transparent; border: 0; padding: 7px 10px; min-height: 36px; cursor: pointer; }
+  .seg button + button { border-left: 1px solid var(--border); }
+  .seg button[aria-pressed="true"] { color: var(--ink); background: var(--surface-2); font-weight: 600; }
+
+  /* Banner for selected hotel */
+  .scope { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 14px; color: var(--ink-2); font-size: 13px; }
+  .scope .pill { display: inline-flex; align-items: center; gap: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; color: var(--ink); font-weight: 600; }
+  .scope .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--series-1); }
+  .scope button.link { font: inherit; color: var(--series-1); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; }
+
+  /* KPI tiles */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(138px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .tile { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow); min-width: 0; }
+  .tile .label { color: var(--ink-2); font-size: 12.5px; }
+  .tile .value { font-size: 26px; font-weight: 650; letter-spacing: -0.02em; line-height: 1.15; margin-top: 2px; }
+  .tile.hero .value { font-size: 40px; }
+  .tile .sub { color: var(--muted); font-size: 12px; margin-top: 3px; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+  .tile .sub.good { color: var(--good-text); }
+  .tile .sub.critical { color: var(--critical); font-weight: 600; }
+  .tile .sub.warn { color: var(--ink-2); font-weight: 600; }
+  .tile .sub svg { width: 14px; height: 14px; flex: none; }
+  .meter { height: 6px; border-radius: 3px; background: var(--track); margin-top: 8px; overflow: hidden; }
+  .meter > div { height: 100%; background: var(--series-1); border-radius: 3px; width: 0; transition: width .35s ease; }
+
+  /* Cards & grid */
+  .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 12px; }
+  .card { grid-column: span 12; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px 12px; box-shadow: var(--shadow); min-width: 0; }
+  .card.half { grid-column: span 6; }
+  .card.third { grid-column: span 4; }
+  @media (max-width: 900px) { .card.half, .card.third { grid-column: span 12; } .card.third { grid-column: span 12; } }
+  @media (min-width: 640px) and (max-width: 900px) { .card.third { grid-column: span 6; } }
+  .card h2 { font-size: 15px; font-weight: 650; margin: 0; }
+  .card .sub { color: var(--ink-2); font-size: 12.5px; margin-top: 2px; }
+  .card .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  .card .head .seg { flex: none; }
+  .card .head .seg button { min-height: 28px; padding: 3px 9px; font-size: 12.5px; }
+  .card .body { position: relative; min-height: 120px; }
+  .card .body svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; color: var(--ink-2); font-size: 12.5px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; }
+  .legend i.line { width: 16px; height: 2px; border-radius: 1px; }
+  .empty { color: var(--muted); padding: 24px 0; text-align: center; }
+
+  /* SVG marks */
+  svg text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 11.5px; fill: var(--ink-2); }
+  svg .tick { fill: var(--muted); font-variant-numeric: tabular-nums; }
+  svg .grid-line { stroke: var(--grid); stroke-width: 1; }
+  svg .baseline { stroke: var(--axis); stroke-width: 1; }
+  svg .val { fill: var(--ink-2); font-variant-numeric: tabular-nums; }
+  svg .val.strong { fill: var(--ink); font-weight: 600; }
+  svg .mark { cursor: pointer; outline: none; }
+  svg .mark:hover rect, svg .mark:focus-visible rect, svg .mark:hover path.fill, svg .mark:focus-visible path.fill { filter: brightness(1.12); }
+  svg .mark:focus-visible rect, svg .mark:focus-visible path.fill { stroke: var(--ink); stroke-width: 1.5; }
+  svg .hit { fill: transparent; }
+  svg .cross { stroke: var(--axis); stroke-width: 1; pointer-events: none; }
+  svg .s1 { fill: var(--series-1); } svg .s2 { fill: var(--series-2); } svg .s3 { fill: var(--series-3); } svg .s4 { fill: var(--series-4); }
+  svg .track { fill: var(--track); }
+  svg .dim { fill: var(--de-emph); }
+  svg .h0 { fill: var(--heat-0); stroke: var(--grid); }
+  svg .h1 { fill: var(--heat-1); } svg .h2 { fill: var(--heat-2); } svg .h3 { fill: var(--heat-3); } svg .h4 { fill: var(--heat-4); }
+  svg .h5 { fill: var(--heat-5); } svg .h6 { fill: var(--heat-6); } svg .h7 { fill: var(--heat-7); }
+  svg .cell-label { font-size: 11px; pointer-events: none; font-variant-numeric: tabular-nums; }
+  svg .cell-label.on-dark { fill: #fff; }
+  svg .cell-label.on-light { fill: #0b0b0b; }
+  svg .area { fill: var(--series-1); fill-opacity: .10; }
+  svg .line { fill: none; stroke: var(--series-1); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  svg .dot { fill: var(--series-1); stroke: var(--surface); stroke-width: 2; }
+  svg .rowlabel { fill: var(--ink); }
+  svg .rowlabel.muted { fill: var(--ink-2); }
+  svg .ylab { fill: var(--ink); }
+  svg .ylab.emph { font-weight: 650; }
+
+  /* Tables */
+  .tbl { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  th { color: var(--ink-2); font-weight: 600; font-size: 12px; position: sticky; top: 0; background: var(--surface); }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.clickable { cursor: pointer; }
+  tr.clickable:hover td { background: var(--surface-2); }
+  tr.selected td { background: var(--surface-2); font-weight: 600; }
+  td .flag { display: inline-flex; align-items: center; gap: 4px; color: var(--critical); font-weight: 600; }
+  td .flag svg { width: 13px; height: 13px; }
+  tfoot td { font-weight: 600; color: var(--ink); border-top: 1px solid var(--axis); }
+
+  /* Tooltip */
+  .tip { position: fixed; z-index: 50; pointer-events: none; background: var(--surface); color: var(--ink); border: 1px solid var(--border);
+         border-radius: 8px; padding: 8px 10px; font-size: 12.5px; box-shadow: 0 4px 16px rgba(0,0,0,.14); min-width: 140px; max-width: 280px; opacity: 0; transition: opacity .08s; }
+  .tip.show { opacity: 1; }
+  .tip .t { color: var(--ink-2); margin-bottom: 4px; font-weight: 600; }
+  .tip .r { display: flex; align-items: center; gap: 7px; justify-content: space-between; }
+  .tip .r .k { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); }
+  .tip .r .k i { width: 12px; height: 2px; display: inline-block; background: var(--series-1); border-radius: 1px; }
+  .tip .r .v { font-weight: 650; font-variant-numeric: tabular-nums; }
+
+  footer { margin-top: 26px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+  footer p { margin: 4px 0; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Delegate Rooming Monitor</h1>
+      <div class="meta" id="meta">Loading…</div>
+    </div>
+    <div class="controls">
+      <label for="hotelSel">Hotel</label>
+      <select id="hotelSel" aria-label="Filter by hotel"></select>
+      <div class="seg" role="group" aria-label="Theme">
+        <button type="button" data-theme="system" aria-pressed="true">Auto</button>
+        <button type="button" data-theme="light" aria-pressed="false">Light</button>
+        <button type="button" data-theme="dark" aria-pressed="false">Dark</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="scope" id="scope"></div>
+
+  <section class="kpis" id="kpis" aria-label="Key figures"></section>
+
+  <div class="grid">
+    <section class="card" id="card-hotels">
+      <div class="head"><div><h2>Delegates by hotel</h2><div class="sub">Expected delegates per hotel with arrivals filled in as hotels check them in. Click a bar to focus on that hotel.</div></div><div class="seg" data-toggle="hotels"><button type="button" aria-pressed="true">Chart</button><button type="button" aria-pressed="false">Table</button></div></div>
+      <div class="body" id="viz-hotels"></div>
+    </section>
+
+    <section class="card half" id="card-checkins">
+      <div class="head"><div><h2>Check-ins per day</h2><div class="sub">Expected check-ins by hotel check-in date, with arrivals recorded so far.</div></div><div class="seg" data-toggle="checkins"><button type="button" aria-pressed="true">Chart</button><button type="button" aria-pressed="false">Table</button></div></div>
+      <div class="body" id="viz-checkins"></div>
+    </section>
+
+    <section class="card half" id="card-checkouts">
+      <div class="head"><div><h2>Check-outs per day</h2><div class="sub">Delegates checking out by date, split by when their flight leaves.</div></div><div class="seg" data-toggle="checkouts"><button type="button" aria-pressed="true">Chart</button><button type="button" aria-pressed="false">Table</button></div></div>
+      <div class="body" id="viz-checkouts"></div>
+    </section>
+
+    <section class="card half" id="card-inhouse">
+      <div class="head"><div><h2>Delegates in-house per night</h2><div class="sub">Delegates booked for each night, from check-in date up to the night before check-out.</div></div><div class="seg" data-toggle="inhouse"><button type="button" aria-pressed="true">Chart</button><button type="button" aria-pressed="false">Table</button></div></div>
+      <div class="body" id="viz-inhouse"></div>
+    </section>
+
+    <section class="card half" id="card-arrivals">
+      <div class="head"><div><h2>Flight arrivals per 3 hours</h2><div class="sub">Delegates by flight arrival date and time band (Manila local). Darker cells mean more arrivals.</div></div><div class="seg" data-toggle="arrivals"><button type="button" aria-pressed="true">Chart</button><button type="button" aria-pressed="false">Table</button></div></div>
+      <div class="body" id="viz-arrivals"></div>
+    </section>
+
+    <section class="card third" id="card-departures">
+      <div class="head"><div><h2>Departure flights vs check-out</h2><div class="sub">How departure flights line up with the hotel check-out date.</div></div></div>
+      <div class="body" id="viz-departures"></div>
+    </section>
+
+    <section class="card third" id="card-gap">
+      <div class="head"><div><h2>Arrivals before check-in</h2><div class="sub">Delegates whose flight lands one or more nights before their hotel check-in.</div></div></div>
+      <div class="body" id="viz-gap"></div>
+    </section>
+
+    <section class="card third" id="card-watch">
+      <div class="head"><div><h2>Watch items</h2><div class="sub">Counts that usually need a coordinator's attention.</div></div></div>
+      <div class="body" id="viz-watch"></div>
+    </section>
+
+    <section class="card third" id="card-branches">
+      <div class="head"><div><h2>Delegates by branch</h2><div class="sub">Top ten branches; the rest folded into Other.</div></div><div class="seg" data-toggle="branches"><button type="button" aria-pressed="true">Chart</button><button type="button" aria-pressed="false">Table</button></div></div>
+      <div class="body" id="viz-branches"></div>
+    </section>
+
+    <section class="card third" id="card-languages">
+      <div class="head"><div><h2>Primary language</h2><div class="sub">Helps plan front-desk and welcome-kit language support.</div></div><div class="seg" data-toggle="languages"><button type="button" aria-pressed="true">Chart</button><button type="button" aria-pressed="false">Table</button></div></div>
+      <div class="body" id="viz-languages"></div>
+    </section>
+
+    <section class="card third" id="card-airlines">
+      <div class="head"><div><h2>Arrival airlines</h2><div class="sub">Top ten airlines bringing delegates in.</div></div><div class="seg" data-toggle="airlines"><button type="button" aria-pressed="true">Chart</button><button type="button" aria-pressed="false">Table</button></div></div>
+      <div class="body" id="viz-airlines"></div>
+    </section>
+  </div>
+
+  <footer>
+    <p id="footerMeta"></p>
+    <p>Monitoring view only. This page carries aggregate counts; no delegate names, codes, flight numbers or remarks are published. Regenerate the data with <code>scripts/build_data.py</code> from the latest hotel master lists.</p>
+  </footer>
+</div>
+<div class="tip" id="tip" role="status" aria-live="polite"></div>
+
+<script src="data/summary.js"></script>
+<script>
+(function () {
+  'use strict';
+  const D = window.ROOMING_DATA;
+  const $ = (s, el) => (el || document).querySelector(s);
+  const NS = 'http://www.w3.org/2000/svg';
+  const fmt = n => (n == null ? '–' : Number(n).toLocaleString('en-US'));
+  const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
+  const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function parseDate(s) { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); }
+  function shortDate(s) { const d = parseDate(s); return MON[d.getMonth()] + ' ' + d.getDate(); }
+  function longDate(s) { const d = parseDate(s); return DOW[d.getDay()] + ' ' + MON[d.getMonth()] + ' ' + d.getDate(); }
+
+  // ---------- state ----------
+  let hotelKey = 'all';
+  const tableMode = {};
+  const state = { current: null };
+
+  // ---------- theme ----------
+  const root = document.documentElement;
+  function applyTheme(t) {
+    if (t === 'light' || t === 'dark') root.setAttribute('data-theme', t); else root.removeAttribute('data-theme');
+    document.querySelectorAll('.seg [data-theme]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.theme === t)));
+    try { localStorage.setItem('drm-theme', t); } catch (e) {}
+  }
+  let savedTheme = 'system';
+  try { savedTheme = localStorage.getItem('drm-theme') || 'system'; } catch (e) {}
+  applyTheme(savedTheme);
+  document.querySelectorAll('.seg [data-theme]').forEach(b => b.addEventListener('click', () => applyTheme(b.dataset.theme)));
+
+  // ---------- tooltip ----------
+  const tip = $('#tip');
+  function showTip(evt, title, rows) {
+    tip.textContent = '';
+    const t = document.createElement('div'); t.className = 't'; t.textContent = title; tip.appendChild(t);
+    rows.forEach(([k, v, cls]) => {
+      const r = document.createElement('div'); r.className = 'r';
+      const kk = document.createElement('span'); kk.className = 'k';
+      if (cls) { const i = document.createElement('i'); i.className = cls; kk.appendChild(i); }
+      kk.appendChild(document.createTextNode(k));
+      const vv = document.createElement('span'); vv.className = 'v'; vv.textContent = v;
+      r.appendChild(kk); r.appendChild(vv); tip.appendChild(r);
+    });
+    tip.classList.add('show');
+    moveTip(evt);
+  }
+  function moveTip(evt) {
+    let x = 0, y = 0;
+    if (evt && 'clientX' in evt) { x = evt.clientX; y = evt.clientY; }
+    else if (evt && evt.target && evt.target.getBoundingClientRect) { const b = evt.target.getBoundingClientRect(); x = b.left + b.width / 2; y = b.top; }
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    let left = x + 14, top = y + 14;
+    if (left + w > window.innerWidth - 8) left = x - w - 14;
+    if (top + h > window.innerHeight - 8) top = y - h - 14;
+    tip.style.left = Math.max(8, left) + 'px'; tip.style.top = Math.max(8, top) + 'px';
+  }
+  function hideTip() { tip.classList.remove('show'); }
+  function attachTip(node, title, rows) {
+    node.classList.add('mark'); node.setAttribute('tabindex', '0'); node.setAttribute('role', 'img');
+    node.setAttribute('aria-label', title + '. ' + rows.map(r => r[0] + ' ' + r[1]).join(', '));
+    node.addEventListener('pointerenter', e => showTip(e, title, rows));
+    node.addEventListener('pointermove', moveTip);
+    node.addEventListener('pointerleave', hideTip);
+    node.addEventListener('focus', e => showTip(e, title, rows));
+    node.addEventListener('blur', hideTip);
+  }
+
+  // ---------- svg helpers ----------
+  function el(tag, attrs, parent) {
+    const n = document.createElementNS(NS, tag);
+    for (const k in attrs) if (attrs[k] != null) n.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(n);
+    return n;
+  }
+  function text(parent, x, y, str, attrs) {
+    const t = el('text', Object.assign({ x, y }, attrs || {}), parent); t.textContent = str; return t;
+  }
+  function niceMax(v) {
+    if (v <= 0) return 1;
+    const p = Math.pow(10, Math.floor(Math.log10(v)));
+    const m = v / p;
+    const step = m <= 1 ? 1 : m <= 2 ? 2 : m <= 2.5 ? 2.5 : m <= 5 ? 5 : 10;
+    return step * p;
+  }
+  function ticks(max, n) {
+    const out = []; const step = niceMax(max / n);
+    for (let v = 0; v <= max + 1e-9; v += step) out.push(Math.round(v * 1000) / 1000);
+    return out;
+  }
+  function compact(n) { return n >= 1000 ? (Math.round(n / 100) / 10).toString().replace(/\.0$/, '') + 'K' : String(n); }
+  function width(container) { return Math.max(260, container.clientWidth || 600); }
+  function textWidth(str, size) { return str.length * (size || 11.5) * 0.56; }
+
+  // Rounded top rect: 4px radius at data end, square at baseline.
+  function roundedTop(x, y, w, h, r) {
+    if (h <= 0 || w <= 0) return '';
+    r = Math.min(r, w / 2, h);
+    return `M${x},${y + h} L${x},${y + r} Q${x},${y} ${x + r},${y} L${x + w - r},${y} Q${x + w},${y} ${x + w},${y + r} L${x + w},${y + h} Z`;
+  }
+  function roundedRight(x, y, w, h, r) {
+    if (h <= 0 || w <= 0) return '';
+    r = Math.min(r, h / 2, w);
+    return `M${x},${y} L${x + w - r},${y} Q${x + w},${y} ${x + w},${y + r} L${x + w},${y + h - r} Q${x + w},${y + h} ${x + w - r},${y + h} L${x},${y + h} Z`;
+  }
+
+  // ---------- chart: vertical columns (overlay or stacked) ----------
+  // series: [{key, name, cls}] ; data: [{label, long, values:{key:n}}]
+  function columnChart(container, data, series, opts) {
+    opts = opts || {};
+    container.textContent = '';
+    if (!data.length) { const e = document.createElement('div'); e.className = 'empty'; e.textContent = 'No data'; container.appendChild(e); return; }
+    const W = width(container), H = opts.height || 260;
+    const m = { t: 22, r: 10, b: 34, l: 40 };
+    const iw = W - m.l - m.r, ih = H - m.t - m.b;
+    const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H }, container);
+    const maxV = Math.max(1, ...data.map(d => opts.stacked ? series.reduce((s, q) => s + (d.values[q.key] || 0), 0) : Math.max(...series.map(q => d.values[q.key] || 0))));
+    const tk = ticks(niceMax(maxV), 4); const top = tk[tk.length - 1];
+    const y = v => m.t + ih - (v / top) * ih;
+    tk.forEach(v => { el('line', { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), class: v === 0 ? 'baseline' : 'grid-line' }, svg); text(svg, m.l - 6, y(v) + 4, compact(v), { 'text-anchor': 'end', class: 'tick' }); });
+    const slot = iw / data.length;
+    const bw = Math.min(24, slot * 0.6);
+    const every = Math.ceil((Math.max(...data.map(d => textWidth(d.label))) + 12) / slot);
+    data.forEach((d, i) => {
+      const x = m.l + slot * i + (slot - bw) / 2;
+      const g = el('g', {}, svg);
+      let acc = 0;
+      const rows = series.map(q => [q.name, fmt(d.values[q.key] || 0), q.tipCls || 'k']);
+      if (opts.stacked) {
+        const total = series.reduce((s, q) => s + (d.values[q.key] || 0), 0);
+        series.forEach((q, si) => {
+          const v = d.values[q.key] || 0; if (!v) return;
+          const y1 = y(acc + v), y0 = y(acc);
+          const isTop = acc + v === total;
+          const gap = si > 0 && acc > 0 ? 2 : 0;
+          if (isTop) el('path', { d: roundedTop(x, y1, bw, Math.max(0, y0 - y1 - gap), 4), class: 'fill ' + q.cls }, g);
+          else el('rect', { x, y: y1, width: bw, height: Math.max(0, y0 - y1 - gap), class: q.cls }, g);
+          acc += v;
+        });
+        if (total > 0 && opts.capLabel) text(g, x + bw / 2, y(total) - 5, fmt(total), { 'text-anchor': 'middle', class: 'val' });
+        rows.push(['Total', fmt(total)]);
+      } else {
+        series.forEach((q, si) => {
+          const v = d.values[q.key] || 0;
+          const h = y(0) - y(v);
+          if (si === 0) el('path', { d: roundedTop(x, y(v), bw, h, 4), class: 'fill ' + q.cls }, g);
+          else if (v > 0) el('path', { d: roundedTop(x, y(v), bw, h, 4), class: 'fill ' + q.cls }, g);
+          if (si === 0 && v > 0 && opts.capLabel) text(g, x + bw / 2, y(v) - 5, fmt(v), { 'text-anchor': 'middle', class: 'val' });
+        });
+      }
+      el('rect', { x: m.l + slot * i, y: m.t, width: slot, height: ih, class: 'hit' }, g);
+      attachTip(g, d.long || d.label, rows);
+      if (i % every === 0) text(svg, m.l + slot * i + slot / 2, H - m.b + 16, d.label, { 'text-anchor': 'middle', class: 'tick' });
+    });
+    if (series.length > 1) {
+      const lg = document.createElement('div'); lg.className = 'legend';
+      series.forEach(q => { const s = document.createElement('span'); const i = document.createElement('i'); i.style.background = `var(${q.color})`; s.appendChild(i); s.appendChild(document.createTextNode(q.name)); lg.appendChild(s); });
+      container.appendChild(lg);
+    }
+  }
+
+  // ---------- chart: horizontal bars ----------
+  function hbarChart(container, items, opts) {
+    opts = opts || {};
+    container.textContent = '';
+    if (!items.length) { const e = document.createElement('div'); e.className = 'empty'; e.textContent = 'No data'; container.appendChild(e); return; }
+    const W = width(container);
+    const rowH = opts.rowH || 26, labelW = Math.min(Math.max(...items.map(i => textWidth(i.label, 12))) + 10, Math.min(200, W * 0.4));
+    const m = { t: 4, r: 56, b: 4, l: labelW };
+    const H = m.t + m.b + rowH * items.length;
+    const iw = W - m.l - m.r;
+    const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H }, container);
+    const maxV = Math.max(1, ...items.map(i => i.value));
+    const x = v => m.l + (v / maxV) * iw;
+    items.forEach((it, i) => {
+      const yy = m.t + rowH * i;
+      const g = el('g', {}, svg);
+      const bh = Math.min(18, rowH - 8);
+      const by = yy + (rowH - bh) / 2;
+      const emph = opts.emphasisKey ? (it.key === opts.emphasisKey) : true;
+      el('path', { d: roundedRight(m.l, by, x(it.value) - m.l, bh, 4), class: 'fill ' + (emph ? (it.cls || 's1') : 'dim') }, g);
+      if (it.overlay != null && it.overlay > 0) el('path', { d: roundedRight(m.l, by, x(it.overlay) - m.l, bh, 4), class: 'fill s1-dark' , style: 'fill: var(--heat-6)' }, g);
+      text(g, x(it.value) + 6, yy + rowH / 2 + 4, fmt(it.value) + (it.suffix || ''), { class: 'val' + (emph && opts.emphasisKey ? ' strong' : '') });
+      let lab = it.label; while (textWidth(lab, 12) > labelW - 8 && lab.length > 4) lab = lab.slice(0, -2).trimEnd() + '…';
+      text(g, m.l - 8, yy + rowH / 2 + 4, lab, { 'text-anchor': 'end', class: 'ylab' + (emph && opts.emphasisKey ? ' emph' : '') });
+      el('rect', { x: 0, y: yy, width: W, height: rowH, class: 'hit' }, g);
+      attachTip(g, it.label, it.rows || [[opts.valueName || 'Delegates', fmt(it.value)]]);
+      if (opts.onClick) { g.addEventListener('click', () => opts.onClick(it)); g.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); opts.onClick(it); } }); }
+    });
+    el('line', { x1: m.l, x2: m.l, y1: m.t, y2: H - m.b, class: 'baseline' }, svg);
+  }
+
+  // ---------- chart: single-series area/line with crosshair ----------
+  function areaChart(container, points, opts) {
+    opts = opts || {};
+    container.textContent = '';
+    if (!points.length) { const e = document.createElement('div'); e.className = 'empty'; e.textContent = 'No data'; container.appendChild(e); return; }
+    const W = width(container), H = opts.height || 260;
+    const m = { t: 22, r: 14, b: 34, l: 44 };
+    const iw = W - m.l - m.r, ih = H - m.t - m.b;
+    const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H }, container);
+    const tk = ticks(niceMax(Math.max(1, ...points.map(p => p.y))), 4); const top = tk[tk.length - 1];
+    const y = v => m.t + ih - (v / top) * ih;
+    const x = i => m.l + (points.length === 1 ? iw / 2 : (i / (points.length - 1)) * iw);
+    tk.forEach(v => { el('line', { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), class: v === 0 ? 'baseline' : 'grid-line' }, svg); text(svg, m.l - 6, y(v) + 4, compact(v), { 'text-anchor': 'end', class: 'tick' }); });
+    const path = points.map((p, i) => (i ? 'L' : 'M') + x(i) + ',' + y(p.y)).join(' ');
+    el('path', { d: path + ` L${x(points.length - 1)},${y(0)} L${x(0)},${y(0)} Z`, class: 'area' }, svg);
+    el('path', { d: path, class: 'line' }, svg);
+    const slotW = iw / Math.max(1, points.length - 1);
+    const every = Math.ceil((Math.max(...points.map(p => textWidth(p.label))) + 12) / slotW);
+    const last = points.length - 1;
+    const lastRegular = Math.floor(last / every) * every;
+    points.forEach((p, i) => {
+      const isLast = i === last && last !== lastRegular && (last - lastRegular) * slotW >= textWidth(points[lastRegular].label) / 2 + textWidth(p.label) + 12;
+      if (i % every === 0 || isLast) text(svg, x(i), H - m.b + 16, p.label, { 'text-anchor': i === last && last > 0 ? 'end' : i === 0 ? 'start' : 'middle', class: 'tick' });
+    });
+    // peak label
+    let pi = 0; points.forEach((p, i) => { if (p.y > points[pi].y) pi = i; });
+    el('circle', { cx: x(pi), cy: y(points[pi].y), r: 4, class: 'dot' }, svg);
+    text(svg, x(pi), y(points[pi].y) - 9, fmt(points[pi].y) + ' peak', { 'text-anchor': pi > points.length * 0.8 ? 'end' : pi < points.length * 0.2 ? 'start' : 'middle', class: 'val strong' });
+    // crosshair + hover layer
+    const cross = el('line', { x1: 0, x2: 0, y1: m.t, y2: m.t + ih, class: 'cross', opacity: 0 }, svg);
+    const dot = el('circle', { cx: 0, cy: 0, r: 4, class: 'dot', opacity: 0 }, svg);
+    const hit = el('rect', { x: m.l, y: m.t, width: iw, height: ih, class: 'hit' }, svg);
+    hit.setAttribute('tabindex', '0'); hit.classList.add('mark');
+    let focusIdx = 0;
+    function at(i, evt) {
+      const p = points[i];
+      cross.setAttribute('x1', x(i)); cross.setAttribute('x2', x(i)); cross.setAttribute('opacity', 1);
+      dot.setAttribute('cx', x(i)); dot.setAttribute('cy', y(p.y)); dot.setAttribute('opacity', 1);
+      showTip(evt || { clientX: svg.getBoundingClientRect().left + x(i), clientY: svg.getBoundingClientRect().top + y(p.y) }, p.long || p.label, [[opts.valueName || 'Delegates', fmt(p.y), 'k']]);
+    }
+    hit.addEventListener('pointermove', e => {
+      const r = svg.getBoundingClientRect(); const px = (e.clientX - r.left) * (W / r.width);
+      const i = Math.max(0, Math.min(points.length - 1, Math.round(((px - m.l) / iw) * (points.length - 1))));
+      at(i, e);
+    });
+    hit.addEventListener('pointerleave', () => { cross.setAttribute('opacity', 0); dot.setAttribute('opacity', 0); hideTip(); });
+    hit.addEventListener('focus', () => at(focusIdx));
+    hit.addEventListener('blur', () => { cross.setAttribute('opacity', 0); dot.setAttribute('opacity', 0); hideTip(); });
+    hit.addEventListener('keydown', e => { if (e.key === 'ArrowRight') { focusIdx = Math.min(points.length - 1, focusIdx + 1); at(focusIdx); e.preventDefault(); } if (e.key === 'ArrowLeft') { focusIdx = Math.max(0, focusIdx - 1); at(focusIdx); e.preventDefault(); } });
+    hit.setAttribute('aria-label', (opts.valueName || 'Delegates') + ' per night. Use arrow keys to move between nights.');
+  }
+
+  // ---------- chart: heatmap ----------
+  function heatmap(container, rows, cols, opts) {
+    opts = opts || {};
+    container.textContent = '';
+    if (!rows.length) { const e = document.createElement('div'); e.className = 'empty'; e.textContent = 'No data'; container.appendChild(e); return; }
+    const W = width(container);
+    const m = { t: 24, r: 4, b: 4, l: 76 };
+    const cw = (W - m.l - m.r) / cols.length;
+    const ch = Math.min(30, Math.max(22, cw * 0.8));
+    const H = m.t + m.b + ch * rows.length;
+    const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H }, container);
+    const maxV = Math.max(1, ...rows.flatMap(r => r.counts));
+    const step = v => (v <= 0 ? 0 : Math.max(1, Math.min(7, Math.ceil((v / maxV) * 7))));
+    const isDark = () => root.getAttribute('data-theme') === 'dark' || (!root.getAttribute('data-theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    const short = c => c === 'No time' ? 'n/a' : c.replace(/AM/g, 'a').replace(/PM/g, 'p');
+    cols.forEach((c, j) => { const lab = cw < 58 ? short(c) : c; text(svg, m.l + cw * j + cw / 2, m.t - 8, lab, { 'text-anchor': 'middle', class: 'tick' }); });
+    rows.forEach((r, i) => {
+      const yy = m.t + ch * i;
+      const rlab = r.date === 'earlier' ? (r.label || 'Earlier') : shortDate(r.date);
+      text(svg, m.l - 8, yy + ch / 2 + 4, rlab, { 'text-anchor': 'end', class: 'rowlabel' + (r.date === 'earlier' ? ' muted' : '') });
+      r.counts.forEach((v, j) => {
+        const s = step(v);
+        const g = el('g', {}, svg);
+        el('rect', { x: m.l + cw * j + 1, y: yy + 1, width: cw - 2, height: ch - 2, rx: 3, class: 'h' + s }, g);
+        if (v > 0 && textWidth(fmt(v), 11) < cw - 6 && ch >= 20) {
+          const dark = isDark();
+          const onDark = dark ? s <= 4 : s >= 4;
+          text(g, m.l + cw * j + cw / 2, yy + ch / 2 + 4, fmt(v), { 'text-anchor': 'middle', class: 'cell-label ' + (onDark ? 'on-dark' : 'on-light') });
+        }
+        attachTip(g, (r.date === 'earlier' ? (r.label || 'Earlier') : longDate(r.date)) + ' · ' + cols[j], [['Arrivals', fmt(v)], ['Day total', fmt(r.total)]]);
+      });
+    });
+  }
+
+  // ---------- tables ----------
+  function table(container, head, rows, foot) {
+    container.textContent = '';
+    const wrap = document.createElement('div'); wrap.className = 'tbl';
+    const t = document.createElement('table');
+    const th = document.createElement('thead'); const trh = document.createElement('tr');
+    head.forEach(h => { const c = document.createElement('th'); c.textContent = h.label; if (h.num) c.className = 'num'; trh.appendChild(c); });
+    th.appendChild(trh); t.appendChild(th);
+    const tb = document.createElement('tbody');
+    rows.forEach(r => { const tr = document.createElement('tr'); r.forEach((v, i) => { const c = document.createElement('td'); if (head[i].num) { c.className = 'num'; c.textContent = typeof v === 'number' ? fmt(v) : v; } else c.textContent = v; tr.appendChild(c); }); tb.appendChild(tr); });
+    t.appendChild(tb);
+    if (foot) { const tf = document.createElement('tfoot'); const tr = document.createElement('tr'); foot.forEach((v, i) => { const c = document.createElement('td'); if (head[i].num) { c.className = 'num'; c.textContent = typeof v === 'number' ? fmt(v) : v; } else c.textContent = v; tr.appendChild(c); }); tf.appendChild(tr); t.appendChild(tf); }
+    wrap.appendChild(t); container.appendChild(wrap);
+  }
+
+  // ---------- icons ----------
+  const ICON = {
+    warn: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5 15 14H1z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 6v3.5M8 11.5v.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+    ok: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="m5 8.2 2 2 4-4.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    moon: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 10A6 6 0 0 1 6 2.5a6 6 0 1 0 7.5 7.5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>'
+  };
+  function iconSvg(name) { const t = document.createElement('template'); t.innerHTML = ICON[name]; return t.content.firstChild; }
+
+  // ---------- render ----------
+  function current() { return hotelKey === 'all' ? D.overall : D.hotels.find(h => h.key === hotelKey); }
+  function hotelName() { return hotelKey === 'all' ? 'All hotels' : D.hotels.find(h => h.key === hotelKey).name; }
+
+  function renderMeta() {
+    const m = $('#meta'); m.textContent = '';
+    const parts = [];
+    if (D.generated) parts.push(['Master lists generated ', D.generated]);
+    parts.push(['', D.hotelCount + ' hotels']);
+    if (D.overall.firstCheckin && D.overall.lastCheckout) parts.push(['Stay window ', longDate(D.overall.firstCheckin) + ' – ' + longDate(D.overall.lastCheckout)]);
+    parts.forEach((p, i) => { if (i) m.appendChild(document.createTextNode('  ·  ')); m.appendChild(document.createTextNode(p[0])); const b = document.createElement('b'); b.textContent = p[1]; m.appendChild(b); });
+    $('#footerMeta').textContent = 'Data built ' + (D.builtAt ? new Date(D.builtAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : '') + (D.source ? ' from ' + D.source : '') + '.';
+  }
+
+  function renderSelect() {
+    const s = $('#hotelSel'); s.textContent = '';
+    const o = document.createElement('option'); o.value = 'all'; o.textContent = 'All hotels (' + fmt(D.overall.delegates) + ' delegates)'; s.appendChild(o);
+    D.hotels.forEach(h => { const op = document.createElement('option'); op.value = h.key; op.textContent = h.name + ' (' + fmt(h.delegates) + ')'; s.appendChild(op); });
+    s.value = hotelKey;
+    s.addEventListener('change', () => setHotel(s.value));
+  }
+
+  function setHotel(key) {
+    hotelKey = key; $('#hotelSel').value = key;
+    try { history.replaceState(null, '', key === 'all' ? location.pathname : '#' + key); } catch (e) {}
+    renderAll();
+  }
+
+  function renderScope() {
+    const s = $('#scope'); s.textContent = '';
+    const pill = document.createElement('span'); pill.className = 'pill';
+    const dot = document.createElement('span'); dot.className = 'dot'; pill.appendChild(dot);
+    pill.appendChild(document.createTextNode(hotelName())); s.appendChild(pill);
+    const c = current();
+    s.appendChild(document.createTextNode(hotelKey === 'all' ? 'Every figure below covers all ' + D.hotelCount + ' hotels.' : 'Every figure below is scoped to this hotel' + (c.cancelled ? ' · ' + fmt(c.cancelled) + ' cancelled booking' + (c.cancelled === 1 ? '' : 's') + ' excluded.' : '.')));
+    if (hotelKey !== 'all') { const b = document.createElement('button'); b.className = 'link'; b.type = 'button'; b.textContent = 'Show all hotels'; b.addEventListener('click', () => setHotel('all')); s.appendChild(b); }
+  }
+
+  function tile(label, value, sub, subCls, icon, meterPct, hero) {
+    const t = document.createElement('div'); t.className = 'tile' + (hero ? ' hero' : '');
+    const l = document.createElement('div'); l.className = 'label'; l.textContent = label; t.appendChild(l);
+    const v = document.createElement('div'); v.className = 'value'; v.textContent = value; t.appendChild(v);
+    if (meterPct != null) { const mm = document.createElement('div'); mm.className = 'meter'; const f = document.createElement('div'); f.style.width = meterPct + '%'; mm.appendChild(f); t.appendChild(mm); }
+    if (sub) { const s = document.createElement('div'); s.className = 'sub' + (subCls ? ' ' + subCls : ''); if (icon) s.appendChild(iconSvg(icon)); s.appendChild(document.createTextNode(sub)); t.appendChild(s); }
+    return t;
+  }
+
+  function renderKpis() {
+    const c = current(); const k = $('#kpis'); k.textContent = '';
+    k.appendChild(tile('Delegates expected', fmt(c.delegates), fmt(c.groups) + ' groups · ' + fmt(c.groupContacts) + ' group contacts', null, null, null, true));
+    const notYet = c.delegates - c.arrived;
+    k.appendChild(tile('Arrived', fmt(c.arrived), c.arrived ? pct(c.arrived, c.delegates) + '% · ' + fmt(notYet) + ' not yet arrived' : 'No arrivals recorded yet', c.arrived ? 'good' : null, null, pct(c.arrived, c.delegates)));
+    k.appendChild(tile('Welcome kits given', fmt(c.welcomeKits), c.arrivedNoKit ? fmt(c.arrivedNoKit) + ' arrived, no kit yet' : (c.arrived ? 'Every arrival has a kit' : 'Tracked as kits are handed out'), c.arrivedNoKit ? 'warn' : (c.arrived ? 'good' : null), c.arrivedNoKit ? 'warn' : (c.arrived ? 'ok' : null), c.welcomeKits ? pct(c.welcomeKits, c.delegates) : null));
+    k.appendChild(tile('Minors (under 18)', fmt(c.minors), c.minorsNoAdult ? fmt(c.minorsNoAdult) + ' with no adult from group at hotel' : 'All with an adult from their group', c.minorsNoAdult ? 'critical' : 'good', c.minorsNoAdult ? 'warn' : 'ok'));
+    k.appendChild(tile('SFTS delegates', fmt(c.sfts), c.specialRooming ? fmt(c.specialRooming) + ' with special rooming' : 'No special rooming notes'));
+    k.appendChild(tile('Late-night arrivals', fmt(c.lateNight), 'Flights landing 10 PM – 5 AM', null, 'moon'));
+    k.appendChild(tile('Arriving before check-in', fmt(c.gap1plus), 'Flight lands 1+ night before check-in'));
+    k.appendChild(tile('No arrival flight on file', fmt(c.noArrivalDate), (c.departure.noDeparture ? fmt(c.departure.noDeparture) + ' with no departure date' : 'All departures on file')));
+  }
+
+  function toggleSetup() {
+    document.querySelectorAll('.seg[data-toggle]').forEach(seg => {
+      const key = seg.dataset.toggle; const [chartB, tableB] = seg.querySelectorAll('button');
+      tableMode[key] = false;
+      chartB.addEventListener('click', () => { tableMode[key] = false; chartB.setAttribute('aria-pressed', 'true'); tableB.setAttribute('aria-pressed', 'false'); renderOne(key); });
+      tableB.addEventListener('click', () => { tableMode[key] = true; chartB.setAttribute('aria-pressed', 'false'); tableB.setAttribute('aria-pressed', 'true'); renderOne(key); });
+    });
+  }
+
+  function renderHotels() {
+    const box = $('#viz-hotels');
+    if (tableMode.hotels) {
+      const head = [{ label: 'Hotel' }, { label: 'Delegates', num: true }, { label: 'Arrived', num: true }, { label: '% arrived', num: true }, { label: 'Kits given', num: true }, { label: 'Groups', num: true }, { label: 'Minors', num: true }, { label: 'SFTS', num: true }, { label: 'Late-night', num: true }, { label: 'Before check-in', num: true }, { label: 'Cancelled', num: true }];
+      box.textContent = '';
+      const wrap = document.createElement('div'); wrap.className = 'tbl'; const t = document.createElement('table');
+      const th = document.createElement('thead'); const trh = document.createElement('tr'); head.forEach(h => { const c = document.createElement('th'); c.textContent = h.label; if (h.num) c.className = 'num'; trh.appendChild(c); }); th.appendChild(trh); t.appendChild(th);
+      const tb = document.createElement('tbody');
+      D.hotels.forEach(h => {
+        const tr = document.createElement('tr'); tr.className = 'clickable' + (h.key === hotelKey ? ' selected' : ''); tr.tabIndex = 0;
+        const vals = [h.name, h.delegates, h.arrived, pct(h.arrived, h.delegates) + '%', h.welcomeKits, h.groups, h.minors, h.sfts, h.lateNight, h.gap1plus, h.cancelled];
+        vals.forEach((v, i) => { const c = document.createElement('td'); if (head[i].num) c.className = 'num'; if (i === 6 && h.minorsNoAdult) { const f = document.createElement('span'); f.className = 'flag'; f.appendChild(iconSvg('warn')); f.appendChild(document.createTextNode(fmt(v) + ' (' + h.minorsNoAdult + ' no adult)')); c.appendChild(f); } else c.textContent = typeof v === 'number' ? fmt(v) : v; tr.appendChild(c); });
+        tr.addEventListener('click', () => setHotel(h.key)); tr.addEventListener('keydown', e => { if (e.key === 'Enter') setHotel(h.key); });
+        tb.appendChild(tr);
+      });
+      t.appendChild(tb);
+      const o = D.overall; const tf = document.createElement('tfoot'); const tr = document.createElement('tr');
+      ['All hotels', o.delegates, o.arrived, pct(o.arrived, o.delegates) + '%', o.welcomeKits, o.groups, o.minors, o.sfts, o.lateNight, o.gap1plus, o.cancelled].forEach((v, i) => { const c = document.createElement('td'); if (head[i].num) c.className = 'num'; c.textContent = typeof v === 'number' ? fmt(v) : v; tr.appendChild(c); });
+      tf.appendChild(tr); t.appendChild(tf); wrap.appendChild(t); box.appendChild(wrap);
+      return;
+    }
+    hbarChart(box, D.hotels.map(h => ({ key: h.key, label: h.name, value: h.delegates, overlay: h.arrived, rows: [['Expected', fmt(h.delegates)], ['Arrived', fmt(h.arrived) + ' (' + pct(h.arrived, h.delegates) + '%)'], ['Welcome kits', fmt(h.welcomeKits)], ['Groups', fmt(h.groups)], ['Minors', fmt(h.minors)], ['Late-night arrivals', fmt(h.lateNight)]] })),
+      { emphasisKey: hotelKey === 'all' ? null : hotelKey, rowH: 28, onClick: it => setHotel(it.key === hotelKey ? 'all' : it.key) });
+    const lg = document.createElement('div'); lg.className = 'legend';
+    [['var(--series-1)', 'Expected'], ['var(--heat-6)', 'Arrived']].forEach(([c, n]) => { const s = document.createElement('span'); const i = document.createElement('i'); i.style.background = c; s.appendChild(i); s.appendChild(document.createTextNode(n)); lg.appendChild(s); });
+    box.appendChild(lg);
+  }
+
+  function renderCheckins() {
+    const c = current(); const box = $('#viz-checkins');
+    const rows = c.checkins;
+    if (tableMode.checkins) {
+      table(box, [{ label: 'Check-in date' }, { label: 'Expected', num: true }, { label: 'Arrived', num: true }, { label: 'Not yet', num: true }, { label: 'Kits given', num: true }, { label: '% arrived', num: true }, { label: 'Minors', num: true }, { label: 'Late-night', num: true }],
+        rows.map(r => [longDate(r.date), r.expected, r.arrived, r.expected - r.arrived, r.kits, pct(r.arrived, r.expected) + '%', r.minors, r.lateNight]),
+        ['Total', c.delegates, c.arrived, c.delegates - c.arrived, c.welcomeKits, pct(c.arrived, c.delegates) + '%', c.minors, c.lateNight]);
+      return;
+    }
+    columnChart(box, rows.map(r => ({ label: shortDate(r.date), long: longDate(r.date), values: { expected: r.expected, arrived: r.arrived } })),
+      [{ key: 'expected', name: 'Expected', cls: 'track', color: '--track' }, { key: 'arrived', name: 'Arrived', cls: 's1', color: '--series-1' }], { capLabel: true });
+  }
+
+  function renderCheckouts() {
+    const c = current(); const box = $('#viz-checkouts');
+    const rows = c.checkouts;
+    if (tableMode.checkouts) {
+      table(box, [{ label: 'Check-out date' }, { label: 'Checking out', num: true }, { label: 'Groups', num: true }, { label: 'Flight same day', num: true }, { label: 'Same day, before 9 AM', num: true }, { label: 'Flight after (luggage hold)', num: true }, { label: 'Flight before check-out', num: true }, { label: 'No departure date', num: true }, { label: 'Minors', num: true }],
+        rows.map(r => [longDate(r.date), r.delegates, r.groups, r.flightSameDay, r.before9am, r.flightAfter, r.flightBefore, r.noDeparture, r.minors]),
+        ['Total', rows.reduce((s, r) => s + r.delegates, 0), '', c.departure.sameDay, c.departure.before9am, c.departure.after, c.departure.before, c.departure.noDeparture, c.minors]);
+      return;
+    }
+    const series = [{ key: 'same', name: 'Flight same day', cls: 's1', color: '--series-1' }, { key: 'after', name: 'Flight after check-out', cls: 's2', color: '--series-2' }, { key: 'none', name: 'No departure date', cls: 's3', color: '--series-3' }];
+    if (rows.some(r => r.flightBefore > 0)) series.push({ key: 'before', name: 'Flight before check-out', cls: 's4', color: '--series-4' });
+    columnChart(box, rows.map(r => ({ label: shortDate(r.date), long: longDate(r.date), values: { same: r.flightSameDay, after: r.flightAfter, none: r.noDeparture, before: r.flightBefore } })), series, { stacked: true, capLabel: true });
+  }
+
+  function renderInhouse() {
+    const c = current(); const box = $('#viz-inhouse');
+    if (tableMode.inhouse) { table(box, [{ label: 'Night of' }, { label: 'Delegates in-house', num: true }], c.inhouse.map(r => [longDate(r.night), r.count])); return; }
+    areaChart(box, c.inhouse.map(r => ({ label: shortDate(r.night), long: 'Night of ' + longDate(r.night), y: r.count })), { valueName: 'In-house' });
+  }
+
+  function renderArrivals() {
+    const c = current(); const box = $('#viz-arrivals');
+    if (tableMode.arrivals) {
+      table(box, [{ label: 'Arrival date' }].concat(c.arrivalBands.map(b => ({ label: b, num: true })), [{ label: 'Total', num: true }]),
+        c.arrivalGrid.map(r => [r.date === 'earlier' ? (r.label || 'Earlier') : longDate(r.date)].concat(r.counts, [r.total])),
+        ['Total'].concat(c.arrivalBands.map((_, j) => c.arrivalGrid.reduce((s, r) => s + r.counts[j], 0)), [c.arrivalGrid.reduce((s, r) => s + r.total, 0)]));
+      return;
+    }
+    heatmap(box, c.arrivalGrid, c.arrivalBands);
+  }
+
+  function renderDepartures() {
+    const c = current(); const box = $('#viz-departures'); const d = c.departure;
+    const items = [
+      { label: 'Flight on check-out day', value: d.sameDay, rows: [['Delegates', fmt(d.sameDay)], ['Of which before 9 AM', fmt(d.before9am)]] },
+      { label: 'Same day, before 9 AM', value: d.before9am, rows: [['Delegates', fmt(d.before9am)]] },
+      { label: 'Flight after check-out', value: d.after, rows: [['Delegates', fmt(d.after)], ['Note', 'Luggage hold or own stay']] },
+      { label: 'Flight before check-out', value: d.before, rows: [['Delegates', fmt(d.before)]] },
+      { label: 'No departure date', value: d.noDeparture, rows: [['Delegates', fmt(d.noDeparture)]] }
+    ].filter(i => i.value > 0 || i.label === 'No departure date');
+    hbarChart(box, items, { rowH: 30 });
+  }
+
+  function renderGap() {
+    const c = current(); const box = $('#viz-gap');
+    const items = c.gapBuckets.map(([k, v]) => ({ label: k + (k === '1' ? ' night early' : ' nights early'), value: v }));
+    if (!items.length) { box.textContent = ''; const e = document.createElement('div'); e.className = 'empty'; e.textContent = 'No early arrivals'; box.appendChild(e); return; }
+    hbarChart(box, items, { rowH: 30 });
+    const n = document.createElement('div'); n.className = 'sub'; n.style.marginTop = '8px'; n.textContent = fmt(c.gap1plus) + ' delegates in total. Confirm where they stay for the gap nights.'; box.appendChild(n);
+  }
+
+  function renderWatch() {
+    const c = current(); const box = $('#viz-watch'); box.textContent = '';
+    const list = [
+      ['Minors with no adult from their group at the hotel', c.minorsNoAdult, c.minorsNoAdult ? 'critical' : 'good'],
+      ['Arrived but no welcome kit yet', c.arrivedNoKit, c.arrivedNoKit ? 'warn' : 'good'],
+      ['Same-day departure flights before 9 AM', c.departure.before9am, 'info'],
+      ['Arriving via Clark (CRK) instead of Manila', (c.airports.find(a => a[0] === 'CRK') || [0, 0])[1], 'info'],
+      ['Arrival airport not set', (c.airports.find(a => a[0] === 'Not set') || [0, 0])[1], 'info'],
+      ['Cancelled bookings (excluded from all counts)', c.cancelled, 'info']
+    ];
+    const t = document.createElement('table');
+    list.forEach(([label, v, cls]) => {
+      const tr = document.createElement('tr'); const a = document.createElement('td'); a.style.whiteSpace = 'normal';
+      if (cls === 'critical') { const f = document.createElement('span'); f.className = 'flag'; f.appendChild(iconSvg('warn')); f.appendChild(document.createTextNode(label)); a.appendChild(f); } else a.textContent = label;
+      const b = document.createElement('td'); b.className = 'num'; b.textContent = fmt(v); b.style.fontWeight = '600';
+      if (cls === 'good') b.style.color = 'var(--good-text)'; if (cls === 'critical') b.style.color = 'var(--critical)';
+      tr.appendChild(a); tr.appendChild(b); t.appendChild(tr);
+    });
+    box.appendChild(t);
+  }
+
+  function renderTop(key, field) {
+    const c = current(); const box = $('#viz-' + key);
+    const items = c[field] || [];
+    if (tableMode[key]) { table(box, [{ label: key === 'branches' ? 'Branch' : key === 'languages' ? 'Language' : 'Airline' }, { label: 'Delegates', num: true }, { label: 'Share', num: true }], items.map(([k, v]) => [k, v, pct(v, c.delegates) + '%'])); return; }
+    hbarChart(box, items.map(([k, v]) => ({ label: k, value: v, cls: k === 'Other' ? 'dim' : 's1', rows: [['Delegates', fmt(v)], ['Share', pct(v, c.delegates) + '%']] })), { rowH: 24 });
+  }
+
+  const R = { hotels: renderHotels, checkins: renderCheckins, checkouts: renderCheckouts, inhouse: renderInhouse, arrivals: renderArrivals, departures: renderDepartures, gap: renderGap, watch: renderWatch, branches: () => renderTop('branches', 'branches'), languages: () => renderTop('languages', 'languages'), airlines: () => renderTop('airlines', 'airlines') };
+  function renderOne(k) { R[k](); }
+  function renderAll() { renderScope(); renderKpis(); Object.keys(R).forEach(renderOne); }
+
+  // ---------- boot ----------
+  if (!D) { $('#meta').textContent = 'data/summary.js is missing. Run scripts/build_data.py first.'; return; }
+  const fromHash = location.hash.replace('#', '');
+  if (fromHash && D.hotels.some(h => h.key === fromHash)) hotelKey = fromHash;
+  renderMeta(); renderSelect(); toggleSetup(); renderAll();
+  let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => Object.keys(R).forEach(renderOne), 120); });
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => renderOne('arrivals'));
+  document.querySelectorAll('.seg [data-theme]').forEach(b => b.addEventListener('click', () => renderOne('arrivals')));
+})();
+</script>
+</body>
+</html>
