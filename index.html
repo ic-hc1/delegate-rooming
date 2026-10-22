@@ -98,16 +98,17 @@
 
   /* KPI tiles */
   .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(138px, 1fr)); gap: 10px; margin-bottom: 14px; }
-  .tile { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow); min-width: 0; }
-  .tile .label { color: var(--ink-2); font-size: 12.5px; }
-  .tile .value { font-size: 26px; font-weight: 650; letter-spacing: -0.02em; line-height: 1.15; margin-top: 2px; }
-  .tile.hero .value { font-size: 40px; }
-  .tile .sub { color: var(--muted); font-size: 12px; margin-top: 3px; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+  .tile { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow); min-width: 0; display: grid; grid-template-rows: auto auto auto 1fr; grid-row: span 4; }
+  @supports (grid-template-rows: subgrid) { .kpis { grid-auto-rows: auto; } .tile { grid-template-rows: subgrid; } }
+  .tile .label { color: var(--ink-2); font-size: 12.5px; line-height: 1.3; min-height: calc(12.5px * 1.3 * 2); }
+  .tile .value { font-size: 30px; font-weight: 650; letter-spacing: -0.02em; line-height: 1.15; margin-top: 4px; align-self: end; font-variant-numeric: tabular-nums; }
+  .tile .meter-slot { height: 14px; }
+  .tile .sub { color: var(--muted); font-size: 12px; margin-top: 2px; display: flex; align-items: flex-start; gap: 5px; flex-wrap: wrap; align-self: start; }
   .tile .sub.good { color: var(--good-text); }
   .tile .sub.critical { color: var(--critical); font-weight: 600; }
   .tile .sub.warn { color: var(--ink-2); font-weight: 600; }
   .tile .sub svg { width: 14px; height: 14px; flex: none; }
-  .meter { height: 6px; border-radius: 3px; background: var(--track); margin-top: 8px; overflow: hidden; }
+  .meter { height: 6px; border-radius: 3px; background: var(--track); margin-top: 6px; overflow: hidden; }
   .meter > div { height: 100%; background: var(--series-1); border-radius: 3px; width: 0; transition: width .35s ease; }
 
   /* Cards & grid */
@@ -614,10 +615,12 @@
   }
 
   function tile(label, value, sub, subCls, icon, meterPct, hero) {
-    const t = document.createElement('div'); t.className = 'tile' + (hero ? ' hero' : '');
+    const t = document.createElement('div'); t.className = 'tile';
     const l = document.createElement('div'); l.className = 'label'; l.textContent = label; t.appendChild(l);
     const v = document.createElement('div'); v.className = 'value'; v.textContent = value; t.appendChild(v);
-    if (meterPct != null) { const mm = document.createElement('div'); mm.className = 'meter'; const f = document.createElement('div'); f.style.width = meterPct + '%'; mm.appendChild(f); t.appendChild(mm); }
+    const slot = document.createElement('div'); slot.className = 'meter-slot';
+    if (meterPct != null) { const mm = document.createElement('div'); mm.className = 'meter'; const f = document.createElement('div'); f.style.width = meterPct + '%'; mm.appendChild(f); slot.appendChild(mm); }
+    t.appendChild(slot);
     if (sub) { const s = document.createElement('div'); s.className = 'sub' + (subCls ? ' ' + subCls : ''); if (icon) s.appendChild(iconSvg(icon)); s.appendChild(document.createTextNode(sub)); t.appendChild(s); }
     return t;
   }
