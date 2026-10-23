@@ -27,6 +27,7 @@ Once GitHub Pages is enabled (see below) the dashboard is served at
 | `index.html` | The dashboard. Plain HTML, CSS and JavaScript, no build step, no external dependencies. |
 | `data/summary.enc.js` | Encrypted aggregate data the page loads and decrypts with the password. Generated. |
 | `scripts/build_data.py` | Reads the hotel master-list workbooks and writes the encrypted data file. |
+| `vendor/crypto-fallback.js` | Pure-JavaScript PBKDF2 and AES-GCM (bundled from the audited `@noble` libraries) used only when a browser's own WebCrypto is unavailable or fails. |
 | `.github/workflows/pages.yml` | Deploys the repository root to GitHub Pages on every push to `main`. |
 
 ## Updating the numbers
