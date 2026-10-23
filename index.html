@@ -183,13 +183,45 @@
   .tip .r .k i { width: 12px; height: 2px; display: inline-block; background: var(--series-1); border-radius: 1px; }
   .tip .r .v { font-weight: 650; font-variant-numeric: tabular-nums; }
 
+  /* Password gate */
+  .gate { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px 16px; }
+  .gate-card { width: 100%; max-width: 380px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 26px 24px 22px; box-shadow: 0 6px 24px rgba(0,0,0,.08); }
+  .gate-card h1 { font-size: 19px; font-weight: 650; margin: 10px 0 4px; letter-spacing: -0.01em; }
+  .gate-card p { color: var(--ink-2); margin: 0 0 16px; font-size: 13.5px; }
+  .gate-icon { width: 40px; height: 40px; border-radius: 10px; background: var(--track-2); color: var(--series-1); display: flex; align-items: center; justify-content: center; }
+  .gate-icon svg { width: 22px; height: 22px; }
+  .gate-card input[type="password"] { width: 100%; font: inherit; font-size: 15px; color: var(--ink); background: var(--page); border: 1px solid var(--axis); border-radius: 8px; padding: 10px 12px; min-height: 42px; }
+  .gate-card input[type="password"]:focus { outline: 2px solid var(--series-1); outline-offset: 1px; border-color: transparent; }
+  .gate-remember { display: flex; align-items: center; gap: 8px; margin: 12px 0 14px; color: var(--ink-2); font-size: 13px; cursor: pointer; }
+  .gate-remember input { width: 16px; height: 16px; margin: 0; accent-color: var(--series-1); }
+  .btn.primary { width: 100%; background: var(--series-1); color: #fff; border-color: transparent; font-weight: 600; font-size: 14.5px; min-height: 42px; }
+  .btn.primary:hover { background: var(--series-1); filter: brightness(1.08); }
+  .btn.primary[disabled] { opacity: .6; cursor: progress; }
+  .gate-err { color: var(--critical); font-size: 13px; min-height: 18px; margin: 10px 0 0 !important; font-weight: 600; }
+  .gate-note { margin: 14px 0 0 !important; font-size: 12px !important; color: var(--muted) !important; }
+  .lock-btn { display: inline-flex; align-items: center; gap: 6px; }
+  .lock-btn svg { width: 14px; height: 14px; }
+
   footer { margin-top: 26px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
   footer p { margin: 4px 0; }
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="gate" id="gate" hidden>
+  <form class="gate-card" id="gateForm" novalidate>
+    <div class="gate-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10.5" width="16" height="10" rx="2.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/><circle cx="12" cy="15.5" r="1.2" fill="currentColor" stroke="none"/></svg></div>
+    <h1>Delegate Rooming Monitor</h1>
+    <p>Enter the dashboard password to view the figures.</p>
+    <label for="pw" class="sr-only">Password</label>
+    <input type="password" id="pw" autocomplete="current-password" autocapitalize="off" spellcheck="false" required autofocus>
+    <label class="gate-remember"><input type="checkbox" id="pwRemember"> Keep me signed in on this device</label>
+    <button type="submit" class="btn primary" id="pwSubmit">Unlock</button>
+    <p class="gate-err" id="gateErr" role="alert"></p>
+    <p class="gate-note">The figures are encrypted and only decrypted in your browser. Monitoring counts only, no personal data.</p>
+  </form>
+</div>
+<div class="wrap" id="app" hidden>
   <header class="top">
     <div>
       <h1>Delegate Rooming Monitor</h1>
@@ -198,6 +230,7 @@
     <div class="controls">
       <label for="hotelSel">Hotel</label>
       <select id="hotelSel" aria-label="Filter by hotel"></select>
+      <button type="button" class="btn lock-btn" id="lockBtn" hidden title="Lock the dashboard on this device"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10.5" width="16" height="10" rx="2.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>Lock</button>
       <div class="seg" role="group" aria-label="Theme">
         <button type="button" data-theme="system" aria-pressed="true">Auto</button>
         <button type="button" data-theme="light" aria-pressed="false">Light</button>
@@ -274,11 +307,15 @@
 </div>
 <div class="tip" id="tip" role="status" aria-live="polite"></div>
 
-<script src="data/summary.js"></script>
+<script src="data/summary.enc.js"></script>
+<script>
+  // Optional unencrypted local preview (data/summary.js is git-ignored and never published).
+  if (!window.ROOMING_DATA_ENC) { const s = document.createElement('script'); s.src = 'data/summary.js'; s.async = false; document.currentScript.after(s); }
+</script>
 <script>
 (function () {
   'use strict';
-  const D = window.ROOMING_DATA;
+  let D = null;
   const $ = (s, el) => (el || document).querySelector(s);
   const NS = 'http://www.w3.org/2000/svg';
   const fmt = n => (n == null ? '–' : Number(n).toLocaleString('en-US'));
@@ -772,13 +809,71 @@
   function renderAll() { renderScope(); renderKpis(); Object.keys(R).forEach(renderOne); }
 
   // ---------- boot ----------
-  if (!D) { $('#meta').textContent = 'data/summary.js is missing. Run scripts/build_data.py first.'; return; }
-  const fromHash = location.hash.replace('#', '');
-  if (fromHash && D.hotels.some(h => h.key === fromHash)) hotelKey = fromHash;
-  renderMeta(); renderSelect(); toggleSetup(); renderAll();
-  let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => Object.keys(R).forEach(renderOne), 120); });
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => renderOne('arrivals'));
-  document.querySelectorAll('.seg [data-theme]').forEach(b => b.addEventListener('click', () => renderOne('arrivals')));
+  const gate = $('#gate'), app = $('#app'), form = $('#gateForm'), pwInput = $('#pw'), pwRemember = $('#pwRemember'), pwSubmit = $('#pwSubmit'), gateErr = $('#gateErr'), lockBtn = $('#lockBtn');
+  const KEY_STORE = 'drm-key';
+  const b64d = str => Uint8Array.from(atob(str), c => c.charCodeAt(0));
+  const b64e = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+  const subtle = (window.crypto && window.crypto.subtle) || null;
+
+  function start(data) {
+    D = data;
+    gate.hidden = true; app.hidden = false;
+    const fromHash = location.hash.replace('#', '');
+    if (fromHash && D.hotels.some(h => h.key === fromHash)) hotelKey = fromHash;
+    renderMeta(); renderSelect(); toggleSetup(); renderAll();
+    let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => Object.keys(R).forEach(renderOne), 120); });
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => renderOne('arrivals'));
+    document.querySelectorAll('.seg [data-theme]').forEach(b => b.addEventListener('click', () => renderOne('arrivals')));
+  }
+
+  async function deriveKey(password, E) {
+    const base = await subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+    return subtle.deriveKey({ name: 'PBKDF2', salt: b64d(E.salt), iterations: E.iter, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, true, ['decrypt']);
+  }
+  async function decryptWith(key, E) {
+    const pt = await subtle.decrypt({ name: 'AES-GCM', iv: b64d(E.iv) }, key, b64d(E.ct));
+    return JSON.parse(new TextDecoder().decode(pt));
+  }
+  function forget() { try { sessionStorage.removeItem(KEY_STORE); localStorage.removeItem(KEY_STORE); } catch (e) {} }
+  function showGate(msg) { gate.hidden = false; app.hidden = true; gateErr.textContent = msg || ''; pwInput.value = ''; setTimeout(() => pwInput.focus(), 0); }
+
+  async function unlockWithStored(E) {
+    let raw = null;
+    try { raw = sessionStorage.getItem(KEY_STORE) || localStorage.getItem(KEY_STORE); } catch (e) {}
+    if (!raw) return false;
+    try {
+      const key = await subtle.importKey('raw', b64d(raw), { name: 'AES-GCM' }, true, ['decrypt']);
+      start(await decryptWith(key, E));
+      return true;
+    } catch (e) { forget(); return false; }
+  }
+
+  async function boot() {
+    const E = window.ROOMING_DATA_ENC;
+    if (!E && window.ROOMING_DATA) { start(window.ROOMING_DATA); return; }
+    if (!E) { showGate('No data file found. Run scripts/build_data.py first.'); pwSubmit.disabled = true; return; }
+    if (!subtle) { showGate('This browser cannot decrypt the dashboard here. Open the page over https.'); pwSubmit.disabled = true; return; }
+    lockBtn.hidden = false;
+    lockBtn.addEventListener('click', () => { forget(); location.reload(); });
+    if (await unlockWithStored(E)) return;
+    showGate('');
+    form.addEventListener('submit', async ev => {
+      ev.preventDefault();
+      const pw = pwInput.value;
+      if (!pw) { gateErr.textContent = 'Enter the password.'; pwInput.focus(); return; }
+      pwSubmit.disabled = true; pwSubmit.textContent = 'Unlocking…'; gateErr.textContent = '';
+      try {
+        const key = await deriveKey(pw, E);
+        const data = await decryptWith(key, E);
+        try { (pwRemember.checked ? localStorage : sessionStorage).setItem(KEY_STORE, b64e(await subtle.exportKey('raw', key))); } catch (e) {}
+        start(data);
+      } catch (e) {
+        gateErr.textContent = 'Wrong password. Please try again.';
+        pwInput.select(); pwInput.focus();
+      } finally { pwSubmit.disabled = false; pwSubmit.textContent = 'Unlock'; }
+    });
+  }
+  boot();
 })();
 </script>
 </body>

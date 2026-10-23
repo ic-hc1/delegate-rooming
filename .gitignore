@@ -5,6 +5,10 @@
 input/
 ~$*
 
+# Unencrypted dashboard data (local preview only). Only data/summary.enc.js is published.
+data/summary.json
+data/summary.js
+
 __pycache__/
 *.pyc
 .DS_Store

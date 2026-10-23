@@ -25,10 +25,18 @@ jobs:
       - uses: actions/configure-pages@v5
         with:
           enablement: true
-      - name: Guard against publishing spreadsheets
+      - name: Guard against publishing spreadsheets or unencrypted data
         run: |
           if find . -path ./.git -prune -o \( -name '*.xlsx' -o -name '*.xlsm' -o -name '*.csv' \) -print | grep -q .; then
             echo "Spreadsheet files must not be published. Remove them from the repo." >&2
+            exit 1
+          fi
+          if [ -e data/summary.json ] || [ -e data/summary.js ]; then
+            echo "Unencrypted data files must not be published. Rebuild with --password and remove them." >&2
+            exit 1
+          fi
+          if [ ! -e data/summary.enc.js ]; then
+            echo "data/summary.enc.js is missing. Run scripts/build_data.py --password first." >&2
             exit 1
           fi
       - uses: actions/upload-pages-artifact@v3
