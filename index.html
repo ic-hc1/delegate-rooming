@@ -63,6 +63,7 @@
   }
 
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html { -webkit-text-size-adjust: 100%; }
   body {
     margin: 0; background: var(--page); color: var(--ink);
@@ -823,7 +824,7 @@
 
   // ---------- boot ----------
   const gate = $('#gate'), app = $('#app'), form = $('#gateForm'), pwInput = $('#pw'), pwRemember = $('#pwRemember'), pwSubmit = $('#pwSubmit'), gateErr = $('#gateErr'), gateStatus = $('#gateStatus'), lockBtn = $('#lockBtn');
-  const KEY_STORE = 'drm-key', LOG_STORE = 'drm-log', PAGE_VERSION = 'v3';
+  const KEY_STORE = 'drm-key', LOG_STORE = 'drm-log', PAGE_VERSION = 'v4';
   function readLog() { try { return JSON.parse(sessionStorage.getItem(LOG_STORE) || '[]'); } catch (e) { return []; } }
   function log(msg) {
     const entry = new Date().toISOString().slice(11, 19) + ' ' + msg;
@@ -893,7 +894,7 @@
     const iv = b64d(E.iv), ct = b64d(E.ct);
     if (subtle) {
       let key = null;
-      try { key = await subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['decrypt']); } catch (e) { console.warn('WebCrypto key import failed:', e); }
+      try { key = await withTimeout(subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['decrypt']), 'Key import'); } catch (e) { log('webcrypto key import failed: ' + describe(e)); }
       if (key) {
         try {
           log('decrypting with webcrypto');
