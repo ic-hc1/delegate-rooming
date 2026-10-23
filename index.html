@@ -200,6 +200,10 @@
   .gate-status { color: var(--ink-2); font-size: 13px; min-height: 18px; margin: 10px 0 0 !important; }
   .gate-err { color: var(--critical); font-size: 13px; min-height: 18px; margin: 10px 0 0 !important; font-weight: 600; }
   .gate-note { margin: 14px 0 0 !important; font-size: 12px !important; color: var(--muted) !important; }
+  .gate-diag { margin-top: 12px; font-size: 12px; color: var(--muted); }
+  .gate-diag summary { cursor: pointer; }
+  .gate-diag pre { white-space: pre-wrap; word-break: break-word; font-size: 11px; line-height: 1.4; background: var(--page); border: 1px solid var(--grid); border-radius: 6px; padding: 8px; margin: 8px 0 0; max-height: 220px; overflow: auto; color: var(--ink-2); }
+  .gate-version { margin: 8px 0 0 !important; font-size: 11px !important; color: var(--muted) !important; text-align: right; }
   .lock-btn { display: inline-flex; align-items: center; gap: 6px; }
   .lock-btn svg { width: 14px; height: 14px; }
 
@@ -210,7 +214,7 @@
 </head>
 <body>
 <div class="gate" id="gate" hidden>
-  <form class="gate-card" id="gateForm" novalidate>
+  <form class="gate-card" id="gateForm" novalidate action="#" onsubmit="return false;">
     <div class="gate-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10.5" width="16" height="10" rx="2.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/><circle cx="12" cy="15.5" r="1.2" fill="currentColor" stroke="none"/></svg></div>
     <h1>Delegate Rooming Monitor</h1>
     <p>Enter the dashboard password to view the figures.</p>
@@ -221,6 +225,8 @@
     <p class="gate-status" id="gateStatus" aria-live="polite"></p>
     <p class="gate-err" id="gateErr" role="alert"></p>
     <p class="gate-note">The figures are encrypted and only decrypted in your browser. Monitoring counts only, no personal data.</p>
+    <details class="gate-diag"><summary>Having trouble? Show details</summary><pre id="gateDiag"></pre></details>
+    <p class="gate-version" id="gateVersion"></p>
   </form>
 </div>
 <div class="wrap" id="app" hidden>
@@ -817,7 +823,31 @@
 
   // ---------- boot ----------
   const gate = $('#gate'), app = $('#app'), form = $('#gateForm'), pwInput = $('#pw'), pwRemember = $('#pwRemember'), pwSubmit = $('#pwSubmit'), gateErr = $('#gateErr'), gateStatus = $('#gateStatus'), lockBtn = $('#lockBtn');
-  const KEY_STORE = 'drm-key';
+  const KEY_STORE = 'drm-key', LOG_STORE = 'drm-log', PAGE_VERSION = 'v3';
+  function readLog() { try { return JSON.parse(sessionStorage.getItem(LOG_STORE) || '[]'); } catch (e) { return []; } }
+  function log(msg) {
+    const entry = new Date().toISOString().slice(11, 19) + ' ' + msg;
+    try { const l = readLog(); l.push(entry); sessionStorage.setItem(LOG_STORE, JSON.stringify(l.slice(-25))); } catch (e) {}
+    renderDiag();
+  }
+  function renderDiag() {
+    const diag = $('#gateDiag'); if (!diag) return;
+    let storage = 'ok'; try { sessionStorage.setItem('drm-t', '1'); sessionStorage.removeItem('drm-t'); } catch (e) { storage = 'blocked'; }
+    const E = window.ROOMING_DATA_ENC;
+    diag.textContent = [
+      'page ' + PAGE_VERSION + ' · ' + location.protocol + '//' + location.host + location.pathname,
+      'secure context: ' + (window.isSecureContext ? 'yes' : 'no') + ' · webcrypto: ' + (window.crypto && window.crypto.subtle ? 'yes' : 'no') + ' · fallback: ' + (window.RoomingCryptoFallback ? 'loaded' : 'missing'),
+      'data file: ' + (E ? 'loaded (' + E.cipher + ', ' + E.iter + ' rounds)' : 'MISSING') + ' · storage: ' + storage,
+      'browser: ' + navigator.userAgent,
+      '',
+      'recent steps:',
+      ...readLog().slice(-12)
+    ].join('\n');
+    const v = $('#gateVersion'); if (v) v.textContent = 'page ' + PAGE_VERSION;
+  }
+  window.addEventListener('error', e => log('ERROR ' + (e.message || e.type)));
+  window.addEventListener('unhandledrejection', e => log('ERROR (promise) ' + ((e.reason && (e.reason.name + ': ' + e.reason.message)) || e.reason)));
+  window.addEventListener('pagehide', () => log('page is being unloaded'));
   const b64d = str => Uint8Array.from(atob(str), c => c.charCodeAt(0));
   const b64e = bytes => { let out = ''; const u = new Uint8Array(bytes); for (let i = 0; i < u.length; i++) out += String.fromCharCode(u[i]); return btoa(out); };
   const subtle = (window.crypto && window.crypto.subtle) || null;
@@ -825,11 +855,12 @@
   const CRYPTO_TIMEOUT = 30000;
 
   function start(data) {
-    D = data;
+    D = data; log('data decrypted, showing dashboard');
     gate.hidden = true; app.hidden = false;
     const fromHash = location.hash.replace('#', '');
     if (fromHash && D.hotels.some(h => h.key === fromHash)) hotelKey = fromHash;
-    renderMeta(); renderSelect(); toggleSetup(); renderAll();
+    try { renderMeta(); renderSelect(); toggleSetup(); renderAll(); log('dashboard rendered'); }
+    catch (e) { log('ERROR while rendering: ' + describe(e)); throw e; }
     let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => Object.keys(R).forEach(renderOne), 120); });
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     if (mq.addEventListener) mq.addEventListener('change', () => renderOne('arrivals')); else if (mq.addListener) mq.addListener(() => renderOne('arrivals'));
@@ -847,15 +878,16 @@
     const pw = new TextEncoder().encode(password), salt = b64d(E.salt);
     if (subtle) {
       try {
+        log('deriving key with webcrypto');
         const base = await subtle.importKey('raw', pw, { name: 'PBKDF2' }, false, ['deriveBits']);
         const bits = await withTimeout(subtle.deriveBits({ name: 'PBKDF2', salt, iterations: E.iter, hash: 'SHA-256' }, base, 256), 'Key derivation');
-        return new Uint8Array(bits);
-      } catch (e) { console.warn('WebCrypto key derivation failed, using fallback:', e); if (!fallback()) throw e; }
+        log('key derived'); return new Uint8Array(bits);
+      } catch (e) { log('webcrypto key derivation failed: ' + describe(e)); if (!fallback()) throw e; }
     }
     if (!fallback()) throw Object.assign(new Error('this browser has no usable crypto support'), { name: 'UnsupportedError' });
-    setStatus('Checking password (slow mode)…');
+    setStatus('Checking password (slow mode)…'); log('deriving key with fallback');
     await new Promise(r => setTimeout(r, 20)); // let the status paint before the CPU-bound work
-    return fallback().pbkdf2Sha256(pw, salt, E.iter, 32);
+    const k = fallback().pbkdf2Sha256(pw, salt, E.iter, 32); log('key derived (fallback)'); return k;
   }
   async function decryptRaw(raw, E) {
     const iv = b64d(E.iv), ct = b64d(E.ct);
@@ -864,21 +896,22 @@
       try { key = await subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['decrypt']); } catch (e) { console.warn('WebCrypto key import failed:', e); }
       if (key) {
         try {
+          log('decrypting with webcrypto');
           const pt = await withTimeout(subtle.decrypt({ name: 'AES-GCM', iv }, key, ct), 'Decryption');
           return JSON.parse(new TextDecoder().decode(pt));
         } catch (e) {
-          if (e && e.name === 'OperationError') throw new WrongPassword();
-          console.warn('WebCrypto decryption failed, using fallback:', e); if (!fallback()) throw e;
+          if (e && e.name === 'OperationError') { log('wrong password'); throw new WrongPassword(); }
+          log('webcrypto decryption failed: ' + describe(e)); if (!fallback()) throw e;
         }
       }
     }
     if (!fallback()) throw Object.assign(new Error('this browser has no usable crypto support'), { name: 'UnsupportedError' });
-    let pt;
-    try { pt = fallback().gcmDecrypt(raw, iv, ct); } catch (e) { throw new WrongPassword(); }
+    let pt; log('decrypting with fallback');
+    try { pt = fallback().gcmDecrypt(raw, iv, ct); } catch (e) { log('wrong password'); throw new WrongPassword(); }
     return JSON.parse(new TextDecoder().decode(pt));
   }
   function forget() { try { sessionStorage.removeItem(KEY_STORE); localStorage.removeItem(KEY_STORE); } catch (e) {} }
-  function showGate(msg) { gate.hidden = false; app.hidden = true; gateErr.textContent = msg || ''; setStatus(''); pwInput.value = ''; setTimeout(() => pwInput.focus(), 0); }
+  function showGate(msg) { gate.hidden = false; app.hidden = true; gateErr.textContent = msg || ''; setStatus(''); pwInput.value = ''; renderDiag(); setTimeout(() => pwInput.focus(), 0); }
   function disableGate(msg) { showGate(msg); pwSubmit.disabled = true; pwSubmit.textContent = 'Unavailable'; pwInput.disabled = true; }
   function describe(e) { return (e && e.name ? e.name : 'Error') + (e && e.message ? ': ' + e.message : ''); }
 
@@ -886,21 +919,27 @@
     let raw = null;
     try { raw = sessionStorage.getItem(KEY_STORE) || localStorage.getItem(KEY_STORE); } catch (e) {}
     if (!raw) return false;
+    log('found a saved key, trying it');
     try { start(await decryptRaw(b64d(raw), E)); return true; }
-    catch (e) { forget(); return false; }
+    catch (e) { log('saved key did not work: ' + describe(e)); forget(); return false; }
   }
 
   async function boot() {
+    log('page loaded (' + PAGE_VERSION + ')');
     const E = window.ROOMING_DATA_ENC;
     if (!E && window.ROOMING_DATA) { start(window.ROOMING_DATA); return; }
     if (!E) { disableGate('The data file could not be loaded. Reload the page, or contact the dashboard owner if this keeps happening.'); return; }
     if (!subtle && !fallback()) { disableGate('This browser cannot decrypt the dashboard. Please open the link in Safari, Chrome, Edge or Firefox.'); return; }
     lockBtn.hidden = false;
-    lockBtn.addEventListener('click', () => { forget(); location.reload(); });
+    lockBtn.addEventListener('click', () => { log('locked by user'); forget(); location.reload(); });
     if (await unlockWithStored(E)) return;
     showGate('');
-    form.addEventListener('submit', async ev => {
-      ev.preventDefault();
+    const lg = readLog(); const lastReq = lg.map(l => /unlock requested/.test(l)).lastIndexOf(true);
+    if (lastReq >= 0 && !lg.slice(lastReq + 1).some(l => /dashboard rendered|wrong password|unlock failed|locked by user/.test(l))) gateErr.textContent = 'Last attempt did not finish. Open "Show details" below and send the text to the dashboard owner.';
+    log('lock screen ready');
+    const onSubmit = async ev => {
+      if (ev) { ev.preventDefault(); if (ev.stopPropagation) ev.stopPropagation(); }
+      log('unlock requested');
       const pw = pwInput.value;
       if (!pw) { gateErr.textContent = 'Enter the password.'; pwInput.focus(); return; }
       pwSubmit.disabled = true; pwSubmit.textContent = 'Unlocking…'; gateErr.textContent = ''; setStatus('Checking password…');
@@ -911,10 +950,14 @@
         start(data);
       } catch (e) {
         if (e && e.name === 'WrongPassword') gateErr.textContent = 'Wrong password. Please try again.';
-        else gateErr.textContent = 'Could not unlock (' + describe(e) + '). Please send this message to the dashboard owner.';
+        else { log('unlock failed: ' + describe(e)); gateErr.textContent = 'Could not unlock (' + describe(e) + '). Open "Show details" below and send the text to the dashboard owner.'; }
         pwInput.select(); pwInput.focus();
       } finally { pwSubmit.disabled = false; pwSubmit.textContent = 'Unlock'; setStatus(''); }
-    });
+      return false;
+    };
+    form.addEventListener('submit', onSubmit);
+    pwSubmit.addEventListener('click', ev => { ev.preventDefault(); onSubmit(ev); });
+    pwInput.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.keyCode === 13) { ev.preventDefault(); onSubmit(ev); } });
   }
   boot().catch(e => { showGate('Something went wrong while starting (' + describe(e) + '). Please reload the page.'); });
 })();
