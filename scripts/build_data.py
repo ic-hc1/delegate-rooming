@@ -119,8 +119,13 @@ def read_workbook(path):
             source = part.split(":", 1)[1].strip()
         elif part.lower().startswith("generated:"):
             generated = part.split(":", 1)[1].strip()
-    header_idx = next(i for i, r in enumerate(rows) if r and r[0] == "No.")
+    # The header row is the one carrying the delegate columns; its "No." label is sometimes blanked out.
+    header_idx = next((i for i, r in enumerate(rows[:20]) if r and "Delegate Code" in r and "Check-in" in r), None)
+    if header_idx is None:
+        raise ValueError(f"{os.path.basename(path)}: could not find the Master List header row")
     header = [str(h).strip() if h is not None else "" for h in rows[header_idx]]
+    if not header[0]:
+        header[0] = "No."
     active, cancelled = [], 0
     for r in rows[header_idx + 1:]:
         if r is None or all(c is None for c in r):
