@@ -294,6 +294,46 @@ def _generated_date(text):
     return dt.date.min
 
 
+def decrypt_existing(path, password):
+    """Return the currently published summary, or None if there is none / it cannot be read."""
+    if not os.path.exists(path):
+        return None
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+        from cryptography.hazmat.primitives import hashes
+        m = re.search(r"window\.ROOMING_DATA_ENC = (\{.*\});", open(path, encoding="utf-8").read())
+        enc = json.loads(m.group(1))
+        key = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=base64.b64decode(enc["salt"]),
+                         iterations=enc["iter"]).derive(password.encode("utf-8"))
+        return json.loads(AESGCM(key).decrypt(base64.b64decode(enc["iv"]), base64.b64decode(enc["ct"]), None))
+    except Exception as exc:  # different password, old format, corrupt file
+        print(f"  note: could not read the existing {os.path.basename(path)} ({exc.__class__.__name__}); skipping the freshness check", file=sys.stderr)
+        return None
+
+
+def freshness(summary):
+    gen = max((_generated_date(g) for g in (summary.get("generated") or "").split(" / ")), default=dt.date.min)
+    o = summary["overall"]
+    return gen, o.get("arrived", 0) + o.get("welcomeKits", 0)
+
+
+def guard_against_older(summary, enc_path, password, allow_older):
+    """Refuse to overwrite newer published data with an older snapshot (unless --allow-older)."""
+    current = decrypt_existing(enc_path, password)
+    if not current:
+        return
+    new_date, new_progress = freshness(summary)
+    cur_date, cur_progress = freshness(current)
+    older = new_date < cur_date or (new_date == cur_date and new_progress < cur_progress)
+    if older and not allow_older:
+        sys.exit(f"Refusing to publish: the new files (generated {new_date}, {new_progress} arrivals+kits) look older than "
+                 f"the data already published (generated {cur_date}, {cur_progress} arrivals+kits). "
+                 f"Re-run with --allow-older if this is intended.")
+    if older:
+        print("  WARNING: publishing data that looks older than the current data (--allow-older)", file=sys.stderr)
+
+
 def scrub_check(obj, path="$"):
     """Fail loudly if anything that looks like a person-level field slipped through."""
     if isinstance(obj, dict):
@@ -312,6 +352,8 @@ def main():
     ap.add_argument("--out", default="data", help="output folder (default: data)")
     ap.add_argument("--password", default=os.environ.get("DASHBOARD_PASSWORD"),
                     help="password that protects the published dashboard (or set DASHBOARD_PASSWORD)")
+    ap.add_argument("--allow-older", action="store_true",
+                    help="replace the published data even if the new files look older than it")
     ap.add_argument("--plain", action="store_true",
                     help="also write unencrypted summary.json / summary.js (git-ignored; local preview only)")
     args = ap.parse_args()
@@ -366,6 +408,9 @@ def main():
         "hotels": hotels,
     }
     scrub_check(summary)
+
+    if args.password:
+        guard_against_older(summary, os.path.join(args.out, "summary.enc.js"), args.password, args.allow_older)
 
     os.makedirs(args.out, exist_ok=True)
     compact = json.dumps(summary, separators=(",", ":"), ensure_ascii=False)
