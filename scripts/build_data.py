@@ -96,7 +96,20 @@ def read_workbook(path):
     ws = wb["Master List"]
     rows = list(ws.iter_rows(values_only=True))
     title = str(rows[0][0] or "")
-    hotel = title.split("|")[0].strip() or os.path.basename(path)
+    hotel = title.split("|")[0].strip()
+    if not hotel:
+        # Title cell missing on the Master List: every other sheet carries "<Hotel>  |  <Sheet title>" in A1.
+        for other in wb.worksheets:
+            if other.title == "Master List":
+                continue
+            first = next(other.iter_rows(min_row=1, max_row=1, values_only=True), None)
+            cand = str(first[0] or "").split("|")[0].strip() if first else ""
+            if cand:
+                hotel = cand
+                break
+    if not hotel:
+        hotel = re.sub(r"^[0-9a-f]{8}-", "", os.path.basename(path)).split("_")[0].title()
+        print(f"  WARNING: no hotel title found in {os.path.basename(path)}; using {hotel!r}", file=sys.stderr)
     meta_line = str(rows[1][0] or "")
     source = ""
     generated = ""
@@ -271,6 +284,16 @@ def aggregate(rows, cancelled, adults_by_group_hotel=None):
     return out
 
 
+def _generated_date(text):
+    """'Oct 24, 2026' -> date; unknown -> date.min so a dated file always wins."""
+    for fmt in ("%b %d, %Y", "%B %d, %Y", "%Y-%m-%d"):
+        try:
+            return dt.datetime.strptime((text or "").strip(), fmt).date()
+        except ValueError:
+            pass
+    return dt.date.min
+
+
 def scrub_check(obj, path="$"):
     """Fail loudly if anything that looks like a person-level field slipped through."""
     if isinstance(obj, dict):
@@ -304,8 +327,23 @@ def main():
 
     hotels, all_rows, total_cancelled = [], [], 0
     generated, sources = set(), set()
+    seen = {}
     for f in files:
         wb = read_workbook(f)
+        key = wb["hotel"].lower()
+        if key in seen:
+            prev = seen[key]
+            newer = _generated_date(wb["generated"]) >= _generated_date(prev["generated"])
+            print(f"  WARNING: {wb['hotel']} appears twice ({prev['file']} and {wb['file']}); keeping the "
+                  f"{'newer' if newer else 'earlier'} file {wb['file'] if newer else prev['file']}", file=sys.stderr)
+            if not newer:
+                continue
+            hotels = [h for h in hotels if h["name"].lower() != key]
+            all_rows = [r for r in all_rows if r.get("_hotel") != key]
+            total_cancelled -= prev["cancelled"]
+        seen[key] = wb
+        for r in wb["rows"]:
+            r["_hotel"] = key
         print(f"  {wb['hotel']:<34} delegates={len(wb['rows']):>4}  cancelled={wb['cancelled']}", file=sys.stderr)
         agg = aggregate(wb["rows"], wb["cancelled"])
         hotels.append({"key": slug(wb["hotel"]), "name": wb["hotel"], **agg})
