@@ -57,6 +57,10 @@ FORBIDDEN = {
     "Flight No.", "Dep. Flight No.", "Kit Box", "HID Remarks",
 }
 
+STANDARD_HEADER = ["No.", "Name (Last, First)", "Group Code", "Delegate Code", "Group Contact", "Gender", "Age", "Minor",
+                   "Branch", "SFTS", "Primary Language", "Check-in", "Check-out", "Arrival Date", "Arrival Time", "Airport",
+                   "Airline", "Flight No.", "Gap Nights", "Departure Date", "Departure Time", "Special Rooming", "Arrived",
+                   "Welcome Kit", "Kit Box", "HID Remarks", "Status"]
 BANDS = ["12AM-3AM", "3AM-6AM", "6AM-9AM", "9AM-12PM", "12PM-3PM", "3PM-6PM", "6PM-9PM", "9PM-12AM"]
 TOP_N = 10
 
@@ -119,13 +123,25 @@ def read_workbook(path):
             source = part.split(":", 1)[1].strip()
         elif part.lower().startswith("generated:"):
             generated = part.split(":", 1)[1].strip()
-    # The header row is the one carrying the delegate columns; its "No." label is sometimes blanked out.
-    header_idx = next((i for i, r in enumerate(rows[:20]) if r and "Delegate Code" in r and "Check-in" in r), None)
+    # The header row is the one carrying the delegate columns. Hotels sometimes blank out individual
+    # header cells while editing; the columns themselves stay in the standard order, so fill the gaps.
+    header_idx = next((i for i, r in enumerate(rows[:20])
+                       if r and "Delegate Code" in r and ("Group Code" in r or "Name (Last, First)" in r)), None)
     if header_idx is None:
         raise ValueError(f"{os.path.basename(path)}: could not find the Master List header row")
     header = [str(h).strip() if h is not None else "" for h in rows[header_idx]]
-    if not header[0]:
-        header[0] = "No."
+    anchor = header.index("Delegate Code") - STANDARD_HEADER.index("Delegate Code")
+    filled = []
+    for i, h in enumerate(header):
+        j = i - anchor
+        if not h and 0 <= j < len(STANDARD_HEADER):
+            header[i] = STANDARD_HEADER[j]
+            filled.append(STANDARD_HEADER[j])
+    if filled:
+        print(f"  note: {os.path.basename(path)}: blank header cell(s) restored by position: {', '.join(filled)}", file=sys.stderr)
+    missing = [c for c in STANDARD_HEADER if c not in header]
+    if missing:
+        raise ValueError(f"{os.path.basename(path)}: Master List is missing column(s): {', '.join(missing)}")
     active, cancelled = [], 0
     for r in rows[header_idx + 1:]:
         if r is None or all(c is None for c in r):
