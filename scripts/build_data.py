@@ -93,68 +93,125 @@ def slug(name):
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
 
 
+HOTEL_BY_FILE_TOKEN = {
+    "CITADINES": "Citadines Bay City Manila",
+    "CONRAD": "Conrad Manila",
+    "GRANDWEST": "Grand Westside Manila Bay",
+    "HIEX": "Holiday Inn Express Manila",
+    "KINGSFORD": "Kingsford Hotel Manila",
+    "LANSON": "Lanson Place Mall of Asia",
+    "MANILAHOTEL": "The Manila Hotel",
+    "OKADA": "Okada Manila",
+    "SAVOY": "Savoy Hotel Manila",
+    "SEDA": "Seda Manila Bay",
+    "TRYP": "TRYP by Wyndham - Mall of Asia",
+}
+
+
+def _cell_text(v):
+    return v.strip() if isinstance(v, str) else ""
+
+
+def _looks_like_title(text):
+    return "|" in text and "Hotel Delegates Master List" in text
+
+
 def read_workbook(path):
+    """Parse one hotel workbook. Hotels edit the top rows by hand (blank, delete or move them), so every
+    part of the layout is located by content rather than by row number."""
     wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
     if "Master List" not in wb.sheetnames:
         raise ValueError(f"{os.path.basename(path)}: no 'Master List' sheet")
     ws = wb["Master List"]
     rows = list(ws.iter_rows(values_only=True))
-    title = str(rows[0][0] or "")
-    hotel = title.split("|")[0].strip()
-    if not hotel:
-        # Title cell missing on the Master List: every other sheet carries "<Hotel>  |  <Sheet title>" in A1.
+    fname = os.path.basename(path)
+    notes = []
+
+    # --- hotel name: the file name token is the stable source; the title row is a cross-check ---
+    token = re.sub(r"^[0-9a-f]{8}-", "", fname).split("_")[0].upper()
+    title_text = ""
+    for r in rows[:10]:
+        t = _cell_text(r[0]) if r else ""
+        if _looks_like_title(t):
+            title_text = t.split("|")[0].strip()
+            break
+    if not title_text:
         for other in wb.worksheets:
             if other.title == "Master List":
                 continue
             first = next(other.iter_rows(min_row=1, max_row=1, values_only=True), None)
-            cand = str(first[0] or "").split("|")[0].strip() if first else ""
-            if cand:
-                hotel = cand
+            t = _cell_text(first[0]) if first else ""
+            if "|" in t and not t.lower().startswith(("source:", "hid:", "updates", "count of", "flight", "sorted", "minors")):
+                title_text = t.split("|")[0].strip()
                 break
+    hotel = HOTEL_BY_FILE_TOKEN.get(token) or title_text
     if not hotel:
-        hotel = re.sub(r"^[0-9a-f]{8}-", "", os.path.basename(path)).split("_")[0].title()
-        print(f"  WARNING: no hotel title found in {os.path.basename(path)}; using {hotel!r}", file=sys.stderr)
-    meta_line = str(rows[1][0] or "")
-    source = ""
-    generated = ""
-    for part in meta_line.split("|"):
-        part = part.strip()
-        if part.lower().startswith("source:"):
-            source = part.split(":", 1)[1].strip()
-        elif part.lower().startswith("generated:"):
-            generated = part.split(":", 1)[1].strip()
-    # The header row is the one carrying the delegate columns. Hotels sometimes blank out individual
-    # header cells while editing; the columns themselves stay in the standard order, so fill the gaps.
-    header_idx = next((i for i, r in enumerate(rows[:20])
-                       if r and "Delegate Code" in r and ("Group Code" in r or "Name (Last, First)" in r)), None)
-    if header_idx is None:
-        raise ValueError(f"{os.path.basename(path)}: could not find the Master List header row")
-    header = [str(h).strip() if h is not None else "" for h in rows[header_idx]]
-    anchor = header.index("Delegate Code") - STANDARD_HEADER.index("Delegate Code")
-    filled = []
-    for i, h in enumerate(header):
-        j = i - anchor
-        if not h and 0 <= j < len(STANDARD_HEADER):
-            header[i] = STANDARD_HEADER[j]
-            filled.append(STANDARD_HEADER[j])
-    if filled:
-        print(f"  note: {os.path.basename(path)}: blank header cell(s) restored by position: {', '.join(filled)}", file=sys.stderr)
-    missing = [c for c in STANDARD_HEADER if c not in header]
-    if missing:
-        raise ValueError(f"{os.path.basename(path)}: Master List is missing column(s): {', '.join(missing)}")
-    active, cancelled = [], 0
-    for r in rows[header_idx + 1:]:
+        raise ValueError(f"{fname}: cannot determine the hotel name")
+    if title_text and title_text != hotel:
+        notes.append(f"title row says {title_text!r}; using {hotel!r} from the file name")
+    if not title_text:
+        notes.append("title row missing; hotel name taken from the file name")
+
+    # --- source / generated line ---
+    source = generated = ""
+    for r in rows[:10]:
+        t = _cell_text(r[0]) if r else ""
+        if t.lower().startswith("source:"):
+            for part in t.split("|"):
+                part = part.strip()
+                if part.lower().startswith("source:"):
+                    source = part.split(":", 1)[1].strip()
+                elif part.lower().startswith("generated:"):
+                    generated = part.split(":", 1)[1].strip()
+            break
+    if not generated:
+        notes.append("generated date line missing")
+
+    # --- header row (may be blanked in places, moved, or deleted) ---
+    header_idx = next((i for i, r in enumerate(rows[:20]) if r and "Delegate Code" in r), None)
+    first_data_idx = next((i for i, r in enumerate(rows[:40]) if r and isinstance(r[0], (int, float)) and not isinstance(r[0], bool)), None)
+    if first_data_idx is None:
+        raise ValueError(f"{fname}: no numbered delegate rows found")
+    if header_idx is not None and header_idx < first_data_idx:
+        header = [str(h).strip() if h is not None else "" for h in rows[header_idx]]
+        anchor = header.index("Delegate Code") - STANDARD_HEADER.index("Delegate Code")
+        filled = []
+        for i, h in enumerate(header):
+            j = i - anchor
+            if not h and 0 <= j < len(STANDARD_HEADER):
+                header[i] = STANDARD_HEADER[j]
+                filled.append(STANDARD_HEADER[j])
+        if filled:
+            notes.append("blank header cell(s) restored by position: " + ", ".join(filled))
+        missing = [c for c in STANDARD_HEADER if c not in header]
+        if missing:
+            raise ValueError(f"{fname}: Master List is missing column(s): {', '.join(missing)}")
+    else:
+        width = max(len(r) for r in rows[first_data_idx:first_data_idx + 5])
+        if width < len(STANDARD_HEADER):
+            raise ValueError(f"{fname}: header row deleted and the sheet has only {width} columns; cannot map them safely")
+        header = STANDARD_HEADER + [""] * (width - len(STANDARD_HEADER))
+        notes.append("header row deleted; assuming the standard column order")
+
+    # --- delegate rows: numbered rows are delegates, un-numbered rows with a name are cancelled, strings are strays ---
+    active, cancelled, strays = [], 0, 0
+    for r in rows[first_data_idx:]:
         if r is None or all(c is None for c in r):
             continue
         rec = dict(zip(header, r))
-        if rec.get("No.") is None:
-            # Grey rows at the bottom carry a Status of "Cancelled ..."
-            if rec.get("Name (Last, First)") is not None or rec.get("Status"):
-                cancelled += 1
-            continue
-        active.append(rec)
+        no = rec.get("No.")
+        if isinstance(no, (int, float)) and not isinstance(no, bool):
+            active.append(rec)
+        elif no is None and (rec.get("Name (Last, First)") is not None or rec.get("Status")):
+            cancelled += 1
+        else:
+            strays += 1
+    if strays:
+        notes.append(f"{strays} stray non-delegate row(s) ignored")
+    for n in notes:
+        print(f"  note: {fname}: {n}", file=sys.stderr)
     return {"hotel": hotel, "source": source, "generated": generated,
-            "rows": active, "cancelled": cancelled, "file": os.path.basename(path)}
+            "rows": active, "cancelled": cancelled, "file": fname}
 
 
 def band_index(t):
