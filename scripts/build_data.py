@@ -471,7 +471,9 @@ def main():
         key = wb["hotel"].lower()
         if key in seen:
             prev = seen[key]
-            newer = _generated_date(wb["generated"]) >= _generated_date(prev["generated"])
+            progress = lambda w: sum(1 for r in w["rows"] if yes(r.get("Arrived")) or yes(r.get("Welcome Kit")))
+            newer = (_generated_date(wb["generated"]), progress(wb), len(wb["rows"])) >= \
+                    (_generated_date(prev["generated"]), progress(prev), len(prev["rows"]))
             print(f"  WARNING: {wb['hotel']} appears twice ({prev['file']} and {wb['file']}); keeping the "
                   f"{'newer' if newer else 'earlier'} file {wb['file'] if newer else prev['file']}", file=sys.stderr)
             if not newer:
