@@ -179,15 +179,23 @@ def read_workbook(path):
         raise ValueError(f"{fname}: no delegate rows found")
     if header_idx is not None:
         header = [str(h).strip() if h is not None else "" for h in rows[header_idx]]
-        anchor = header.index("Delegate Code") - STANDARD_HEADER.index("Delegate Code")
-        filled = []
+        # Restore blank header cells from the standard sequence. A blank whose expected label already
+        # appears further right is an empty column someone inserted, and is left unmapped.
+        filled, inserted, k = [], [], 0
         for i, h in enumerate(header):
-            j = i - anchor
-            if not h and 0 <= j < len(STANDARD_HEADER):
-                header[i] = STANDARD_HEADER[j]
-                filled.append(STANDARD_HEADER[j])
+            if h in STANDARD_HEADER:
+                k = STANDARD_HEADER.index(h) + 1
+            elif not h and k < len(STANDARD_HEADER) and STANDARD_HEADER[k] not in header:
+                header[i] = STANDARD_HEADER[k]
+                filled.append(STANDARD_HEADER[k])
+                k += 1
+            elif not h and k < len(STANDARD_HEADER):
+                inserted.append(i)
         if filled:
-            notes.append("blank header cell(s) restored by position: " + ", ".join(filled))
+            notes.append("blank header cell(s) restored: " + ", ".join(filled))
+        for i in inserted:
+            sample = [r[i] for r in rows[header_idx + 1:header_idx + 200] if r and i < len(r) and r[i] is not None]
+            notes.append(f"empty inserted column at position {i + 1} ignored" + (f" (it holds {len(sample)} value(s) in the first rows, please check)" if sample else ""))
         missing = [c for c in STANDARD_HEADER if c not in header]
         if missing:
             raise ValueError(f"{fname}: Master List is missing column(s): {', '.join(missing)}")
