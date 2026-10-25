@@ -112,6 +112,10 @@ def _cell_text(v):
     return v.strip() if isinstance(v, str) else ""
 
 
+def _is_delegate_code(v):
+    return isinstance(v, str) and re.fullmatch(r"[A-Z0-9]{11}", v.strip()) is not None
+
+
 def _looks_like_title(text):
     return "|" in text and "Hotel Delegates Master List" in text
 
@@ -168,11 +172,11 @@ def read_workbook(path):
         notes.append("generated date line missing")
 
     # --- header row (may be blanked in places, moved, or deleted) ---
-    header_idx = next((i for i, r in enumerate(rows[:20]) if r and "Delegate Code" in r), None)
-    first_data_idx = next((i for i, r in enumerate(rows[:40]) if r and isinstance(r[0], (int, float)) and not isinstance(r[0], bool)), None)
+    header_idx = next((i for i, r in enumerate(rows[:100]) if r and "Delegate Code" in r and "Name (Last, First)" in r), None)
+    first_data_idx = next((i for i, r in enumerate(rows[:40]) if r and any(_is_delegate_code(c) for c in r[:6])), None)
     if first_data_idx is None:
-        raise ValueError(f"{fname}: no numbered delegate rows found")
-    if header_idx is not None and header_idx < first_data_idx:
+        raise ValueError(f"{fname}: no delegate rows found")
+    if header_idx is not None:
         header = [str(h).strip() if h is not None else "" for h in rows[header_idx]]
         anchor = header.index("Delegate Code") - STANDARD_HEADER.index("Delegate Code")
         filled = []
@@ -193,21 +197,32 @@ def read_workbook(path):
         header = STANDARD_HEADER + [""] * (width - len(STANDARD_HEADER))
         notes.append("header row deleted; assuming the standard column order")
 
-    # --- delegate rows: numbered rows are delegates, un-numbered rows with a name are cancelled, strings are strays ---
-    active, cancelled, strays = [], 0, 0
+    # --- delegate rows: a row is a delegate when it carries a delegate code; the Status column marks
+    # cancelled ones (grey rows at the bottom). Anything else (moved title/header rows, typed-over
+    # cells, totals) is a stray and is ignored. The "No." column is not trusted: hotels type over it.
+    active, cancelled, strays, renumbered = [], 0, 0, 0
     for r in rows[first_data_idx:]:
         if r is None or all(c is None for c in r):
             continue
         rec = dict(zip(header, r))
-        no = rec.get("No.")
-        if isinstance(no, (int, float)) and not isinstance(no, bool):
-            active.append(rec)
-        elif no is None and (rec.get("Name (Last, First)") is not None or rec.get("Status")):
-            cancelled += 1
-        else:
+        if not _is_delegate_code(rec.get("Delegate Code")):
             strays += 1
+            continue
+        status = _cell_text(rec.get("Status")).lower()
+        if status.startswith("cancel"):
+            cancelled += 1
+            continue
+        no = rec.get("No.")
+        if no is None and rec.get("Name (Last, First)") is None:
+            strays += 1
+            continue
+        if not isinstance(no, (int, float)) or isinstance(no, bool):
+            renumbered += 1
+        active.append(rec)
     if strays:
         notes.append(f"{strays} stray non-delegate row(s) ignored")
+    if renumbered:
+        notes.append(f"{renumbered} delegate row(s) whose 'No.' cell was typed over were kept")
     for n in notes:
         print(f"  note: {fname}: {n}", file=sys.stderr)
     return {"hotel": hotel, "source": source, "generated": generated,
