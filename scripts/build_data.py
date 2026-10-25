@@ -132,7 +132,8 @@ def read_workbook(path):
     notes = []
 
     # --- hotel name: the file name token is the stable source; the title row is a cross-check ---
-    token = re.sub(r"^[0-9a-f]{8}-", "", fname).split("_")[0].upper()
+    upper = fname.upper()
+    token = next((t for t in sorted(HOTEL_BY_FILE_TOKEN, key=len, reverse=True) if t in upper), "")
     title_text = ""
     for r in rows[:10]:
         t = _cell_text(r[0]) if r else ""
