@@ -19,6 +19,7 @@ Each workbook must have a "Master List" sheet in the standard layout
 """
 import argparse
 import base64
+import zipfile
 import datetime as dt
 import glob
 import json
@@ -106,6 +107,19 @@ HOTEL_BY_FILE_TOKEN = {
     "SEDA": "Seda Manila Bay",
     "TRYP": "TRYP by Wyndham - Mall of Asia",
 }
+
+
+def file_saved_at(path):
+    """When the workbook was last saved (from its document properties), as an ISO UTC string, or None."""
+    try:
+        core = zipfile.ZipFile(path).read("docProps/core.xml").decode("utf-8", "replace")
+        m = re.search(r"<dcterms:modified[^>]*>([^<]+)<", core)
+        if not m:
+            return None
+        ts = dt.datetime.fromisoformat(m.group(1).strip().replace("Z", "+00:00"))
+        return ts.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except Exception:
+        return None
 
 
 def _cell_text(v):
@@ -234,7 +248,7 @@ def read_workbook(path):
         notes.append(f"{renumbered} delegate row(s) whose 'No.' cell was typed over were kept")
     for n in notes:
         print(f"  note: {fname}: {n}", file=sys.stderr)
-    return {"hotel": hotel, "source": source, "generated": generated,
+    return {"hotel": hotel, "source": source, "generated": generated, "savedAt": file_saved_at(path),
             "rows": active, "cancelled": cancelled, "file": fname}
 
 
@@ -495,7 +509,7 @@ def main():
             r["_hotel"] = key
         print(f"  {wb['hotel']:<34} delegates={len(wb['rows']):>4}  cancelled={wb['cancelled']}", file=sys.stderr)
         agg = aggregate(wb["rows"], wb["cancelled"])
-        hotels.append({"key": slug(wb["hotel"]), "name": wb["hotel"], **agg})
+        hotels.append({"key": slug(wb["hotel"]), "name": wb["hotel"], "savedAt": wb["savedAt"], **agg})
         all_rows.extend(wb["rows"])
         total_cancelled += wb["cancelled"]
         if wb["generated"]:
