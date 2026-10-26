@@ -77,6 +77,11 @@
   header.top h1 { font-size: 22px; font-weight: 650; margin: 0 0 2px; letter-spacing: -0.01em; }
   header.top .meta { color: var(--ink-2); font-size: 13px; }
   header.top .meta b { color: var(--ink); font-weight: 600; }
+  .updated { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; padding: 3px 10px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); color: var(--ink-2); font-size: 12.5px; }
+  .updated .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); flex: none; }
+  .updated.old .dot { background: var(--warning); }
+  .updated.stale .dot { background: var(--critical); }
+  .updated b { color: var(--ink); font-weight: 600; }
   .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .controls label { color: var(--ink-2); font-size: 13px; }
   select, button.btn {
@@ -235,6 +240,7 @@
     <div>
       <h1>Delegate Rooming Monitor</h1>
       <div class="meta" id="meta">Loading…</div>
+      <div class="updated" id="updated" hidden><span class="dot" aria-hidden="true"></span><span id="updatedText"></span></div>
     </div>
     <div class="controls">
       <label for="hotelSel">Hotel</label>
@@ -638,14 +644,24 @@
   function current() { return hotelKey === 'all' ? D.overall : D.hotels.find(h => h.key === hotelKey); }
   function hotelName() { return hotelKey === 'all' ? 'All hotels' : D.hotels.find(h => h.key === hotelKey).name; }
 
+  function renderUpdated() {
+    const box = $('#updated'); if (!D.builtAt) { box.hidden = true; return; }
+    const d = new Date(D.builtAt); const h = (Date.now() - d.getTime()) / 36e5;
+    const when = d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    const age = h < 1 ? Math.max(1, Math.round(h * 60)) + ' min ago' : h < 24 ? Math.floor(h) + ' h ago' : Math.floor(h / 24) + ' d ' + Math.floor(h % 24) + ' h ago';
+    const t = $('#updatedText'); t.textContent = ''; t.appendChild(document.createTextNode('Dashboard updated ')); const b = document.createElement('b'); b.textContent = when; t.appendChild(b); t.appendChild(document.createTextNode(' · ' + age));
+    box.className = 'updated' + (h >= 24 ? ' stale' : h >= 8 ? ' old' : ''); box.hidden = false;
+    box.title = 'Figures were rebuilt from the hotel master lists at this time (shown in your local time).';
+  }
   function renderMeta() {
+    renderUpdated();
     const m = $('#meta'); m.textContent = '';
     const parts = [];
     if (D.generated) parts.push(['Master lists generated ', D.generated]);
     parts.push(['', D.hotelCount + ' hotels']);
     if (D.overall.firstCheckin && D.overall.lastCheckout) parts.push(['Stay window ', longDate(D.overall.firstCheckin) + ' – ' + longDate(D.overall.lastCheckout)]);
     parts.forEach((p, i) => { if (i) m.appendChild(document.createTextNode('  ·  ')); m.appendChild(document.createTextNode(p[0])); const b = document.createElement('b'); b.textContent = p[1]; m.appendChild(b); });
-    $('#footerMeta').textContent = 'Data built ' + (D.builtAt ? new Date(D.builtAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : '') + (D.source ? ' from ' + D.source : '') + '.';
+    $('#footerMeta').textContent = 'Figures rebuilt ' + (D.builtAt ? new Date(D.builtAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : '') + (D.source ? ' from ' + D.source : '') + '. Each hotel\'s own list save time is in the hotel table.';
   }
 
   function renderSelect() {
@@ -832,7 +848,8 @@
 
   const R = { hotels: renderHotels, checkins: renderCheckins, checkouts: renderCheckouts, inhouse: renderInhouse, arrivals: renderArrivals, departures: renderDepartures, gap: renderGap, watch: renderWatch, branches: () => renderTop('branches', 'branches'), languages: () => renderTop('languages', 'languages'), airlines: () => renderTop('airlines', 'airlines') };
   function renderOne(k) { R[k](); }
-  function renderAll() { renderScope(); renderKpis(); Object.keys(R).forEach(renderOne); }
+  function renderAll() { renderUpdated(); renderScope(); renderKpis(); Object.keys(R).forEach(renderOne); }
+  setInterval(() => { if (D) renderUpdated(); }, 60000);
 
   // ---------- boot ----------
   const gate = $('#gate'), app = $('#app'), form = $('#gateForm'), pwInput = $('#pw'), pwRemember = $('#pwRemember'), pwSubmit = $('#pwSubmit'), gateErr = $('#gateErr'), gateStatus = $('#gateStatus'), lockBtn = $('#lockBtn');
