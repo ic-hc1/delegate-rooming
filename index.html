@@ -287,7 +287,7 @@
   <div class="grid">
     <section class="card" id="card-delegates">
       <div class="head">
-        <div><h2>Delegates</h2><div class="sub">Arrival status per delegate from the hotel lists: arrived, welcome kit, and HID remarks. Names stay as initials; press + on a row to see one delegate, or search to narrow the list.</div></div>
+        <div><h2>Delegates</h2><div class="sub">Arrival status per delegate from the hotel lists: arrived, welcome kit, and HID remarks. Names are hidden; press + on a row to see one delegate, or search to narrow the list.</div></div>
         <div class="dlg-controls">
           <label for="dlgDate">Day<input type="date" id="dlgDate"></label>
           <input type="search" id="dlgSearch" placeholder="Search a name…" aria-label="Search delegates by name" autocomplete="off">
@@ -936,7 +936,7 @@
       const name = document.createElement('td'); name.className = 'name';
       const rb = document.createElement('button'); rb.type = 'button'; rb.className = 'rv'; rb.setAttribute('aria-pressed', String(open)); rb.setAttribute('aria-label', open ? 'Hide this delegate\'s name' : 'Show this delegate\'s name'); rb.title = rb.getAttribute('aria-label'); rb.textContent = open ? '−' : '+';
       rb.addEventListener('click', () => { if (dlg.open.has(d)) dlg.open.delete(d); else dlg.open.add(d); renderDelegates(); });
-      const nm = document.createElement('span'); nm.className = 'nm' + (open ? '' : ' masked'); nm.textContent = open ? d.n : maskName(d.n);
+      const nm = document.createElement('span'); nm.className = 'nm' + (open ? '' : ' masked'); nm.textContent = open ? d.n : '';
       name.appendChild(rb); name.appendChild(nm); cells.push(name);
       if (showHotel) { const c = document.createElement('td'); c.textContent = hotelsByKey[d.h] || d.h; cells.push(c); }
       const ci = document.createElement('td'); ci.textContent = dlgDate(d.ci); if (!d.ar && d.ci && d.ci < L.T) { const sp = document.createElement('span'); sp.className = 'chip crit'; sp.textContent = 'overdue ' + daysBetween(d.ci, L.T) + ' d'; ci.appendChild(document.createTextNode(' ')); ci.appendChild(sp); } cells.push(ci);
@@ -949,7 +949,7 @@
     });
     t.appendChild(tb); wrap.appendChild(t); box.appendChild(wrap);
     if (sorted.length > dlg.shown) { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn more'; b.textContent = 'Show ' + fmt(Math.min(150, sorted.length - dlg.shown)) + ' more of ' + fmt(sorted.length); b.addEventListener('click', () => { dlg.shown += 150; renderDelegates(); }); box.appendChild(b); }
-    const note = document.createElement('p'); note.className = 'dlg-note'; note.textContent = (reveal ? 'All names and remarks are shown until you press Hide names or reload.' : 'Initials only. Press + on a row to see that delegate\'s name and remark; search narrows the list without revealing names.') + ' Hotel status comes from the Arrived column of each hotel list and updates when the dashboard is rebuilt.'; box.appendChild(note);
+    const note = document.createElement('p'); note.className = 'dlg-note'; note.textContent = (reveal ? 'All names and remarks are shown until you press Hide names or reload.' : 'Press + on a row to see that delegate\'s name and remark; search narrows the list without revealing names.') + ' Hotel status comes from the Arrived column of each hotel list and updates when the dashboard is rebuilt.'; box.appendChild(note);
   }
   function dlgSetup() {
     const dateEl = $('#dlgDate'), q = $('#dlgSearch'), btn = $('#dlgNames');
