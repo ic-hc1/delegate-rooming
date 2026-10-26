@@ -233,6 +233,11 @@
   .chip.crit { color: var(--critical); background: color-mix(in srgb, var(--critical) 12%, transparent); border-color: transparent; font-weight: 600; }
   td.remark { white-space: normal; min-width: 180px; max-width: 360px; color: var(--ink-2); }
   .more { margin-top: 10px; }
+  .rv { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; margin-right: 8px; border-radius: 50%; border: 1px solid var(--axis); background: var(--surface); color: var(--ink-2); font: inherit; font-size: 18px; line-height: 1; cursor: pointer; vertical-align: middle; flex: none; }
+  .rv:hover { background: var(--surface-2); color: var(--ink); }
+  .rv[aria-pressed="true"] { background: var(--track-2); border-color: var(--series-1); color: var(--ink); }
+  td.name { white-space: nowrap; }
+  td.name .nm { vertical-align: middle; }
 
   footer { margin-top: 26px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
   footer p { margin: 4px 0; }
@@ -282,11 +287,11 @@
   <div class="grid">
     <section class="card" id="card-delegates">
       <div class="head">
-        <div><h2>Delegates</h2><div class="sub">Arrival status per delegate from the hotel lists: arrived, welcome kit, and HID remarks. Names stay hidden until you search or press Show names.</div></div>
+        <div><h2>Delegates</h2><div class="sub">Arrival status per delegate from the hotel lists: arrived, welcome kit, and HID remarks. Names stay as initials; press + on a row to see one delegate, or search to narrow the list.</div></div>
         <div class="dlg-controls">
           <label for="dlgDate">Day<input type="date" id="dlgDate"></label>
           <input type="search" id="dlgSearch" placeholder="Search a name…" aria-label="Search delegates by name" autocomplete="off">
-          <button type="button" class="btn" id="dlgNames" aria-pressed="false">Show names</button>
+          <button type="button" class="btn" id="dlgNames" aria-pressed="false">Show all names</button>
         </div>
       </div>
       <div class="dlg-strip" id="dlgStrip"></div>
@@ -881,7 +886,7 @@
   }
 
   // ---------- delegates (names layer) ----------
-  const dlg = { tab: 'today', date: null, query: '', reveal: false, shown: 150 };
+  const dlg = { tab: 'today', date: null, query: '', reveal: false, shown: 150, open: new Set() };
   function manilaToday() { return new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10); }
   function maskName(n) {
     const parts = n.split(',').map(x => x.trim()).filter(Boolean);
@@ -919,7 +924,7 @@
     const sorted = rows.slice().sort((a, b) => (dlg.tab === 'arrived' ? (b.ci || '').localeCompare(a.ci || '') : (a.ci || '').localeCompare(b.ci || '')) || (a.ad || '').localeCompare(b.ad || '') || (a.at || '').localeCompare(b.at || '') || a.n.localeCompare(b.n));
     box.textContent = '';
     if (!sorted.length) { const e = document.createElement('div'); e.className = 'empty'; e.textContent = L.strip.searching ? 'No delegate matches that search in this list.' : 'Nothing in this list.'; box.appendChild(e); return; }
-    const reveal = dlg.reveal || L.strip.searching;
+    const reveal = dlg.reveal;
     const showHotel = hotelKey === 'all';
     const head = ['Delegate'].concat(showHotel ? ['Hotel'] : [], ['Check-in', 'Flight arrival', 'Hotel status', 'Welcome kit', 'HID remarks', 'Flags']);
     const wrap = document.createElement('div'); wrap.className = 'tbl'; const t = document.createElement('table');
@@ -927,26 +932,31 @@
     const tb = document.createElement('tbody');
     sorted.slice(0, dlg.shown).forEach(d => {
       const tr = document.createElement('tr'); const cells = [];
-      const name = document.createElement('td'); if (reveal) name.textContent = d.n; else { name.className = 'masked'; name.textContent = maskName(d.n); name.title = 'Hidden. Search or press Show names.'; } cells.push(name);
+      const open = reveal || dlg.open.has(d);
+      const name = document.createElement('td'); name.className = 'name';
+      const rb = document.createElement('button'); rb.type = 'button'; rb.className = 'rv'; rb.setAttribute('aria-pressed', String(open)); rb.setAttribute('aria-label', open ? 'Hide this delegate\'s name' : 'Show this delegate\'s name'); rb.title = rb.getAttribute('aria-label'); rb.textContent = open ? '−' : '+';
+      rb.addEventListener('click', () => { if (dlg.open.has(d)) dlg.open.delete(d); else dlg.open.add(d); renderDelegates(); });
+      const nm = document.createElement('span'); nm.className = 'nm' + (open ? '' : ' masked'); nm.textContent = open ? d.n : maskName(d.n);
+      name.appendChild(rb); name.appendChild(nm); cells.push(name);
       if (showHotel) { const c = document.createElement('td'); c.textContent = hotelsByKey[d.h] || d.h; cells.push(c); }
       const ci = document.createElement('td'); ci.textContent = dlgDate(d.ci); if (!d.ar && d.ci && d.ci < L.T) { const sp = document.createElement('span'); sp.className = 'chip crit'; sp.textContent = 'overdue ' + daysBetween(d.ci, L.T) + ' d'; ci.appendChild(document.createTextNode(' ')); ci.appendChild(sp); } cells.push(ci);
       const fl = document.createElement('td'); fl.textContent = d.ad ? dlgDate(d.ad) + (d.at ? ' ' + d.at : '') + (d.fl ? ' · ' + d.fl : '') + (d.ap && d.ap !== 'MNL' ? ' (' + d.ap + ')' : '') : 'no flight on file'; cells.push(fl);
       const st = document.createElement('td'); const sc = document.createElement('span'); sc.className = 'chip ' + (d.ar ? 'ok' : 'warn'); sc.textContent = d.ar ? 'Arrived' : 'Not marked'; st.appendChild(sc); cells.push(st);
       const kit = document.createElement('td'); const kc = document.createElement('span'); kc.className = 'chip ' + (d.wk ? 'ok' : d.ar ? 'warn' : ''); kc.textContent = d.wk ? 'Given' : d.ar ? 'Not yet' : '–'; kit.appendChild(kc); cells.push(kit);
-      const rm = document.createElement('td'); rm.className = 'remark'; if (d.rm) { if (reveal) rm.textContent = d.rm; else { const c = document.createElement('span'); c.className = 'chip'; c.textContent = 'has a remark'; rm.appendChild(c); } } cells.push(rm);
-      const fg = document.createElement('td'); [[d.sf, 'SFTS'], [d.sr, d.sr ? (reveal ? d.sr : 'Special rooming') : null], [d.mi, 'Minor'], [d.gc, 'Group contact']].forEach(([on, label]) => { if (on && label) { const c = document.createElement('span'); c.className = 'chip'; c.textContent = label; fg.appendChild(c); } }); cells.push(fg);
+      const rm = document.createElement('td'); rm.className = 'remark'; if (d.rm) { if (open) rm.textContent = d.rm; else { const c = document.createElement('span'); c.className = 'chip'; c.textContent = 'has a remark'; rm.appendChild(c); } } cells.push(rm);
+      const fg = document.createElement('td'); [[d.sf, 'SFTS'], [d.sr, d.sr ? (open ? d.sr : 'Special rooming') : null], [d.mi, 'Minor'], [d.gc, 'Group contact']].forEach(([on, label]) => { if (on && label) { const c = document.createElement('span'); c.className = 'chip'; c.textContent = label; fg.appendChild(c); } }); cells.push(fg);
       cells.forEach(c => tr.appendChild(c)); tb.appendChild(tr);
     });
     t.appendChild(tb); wrap.appendChild(t); box.appendChild(wrap);
     if (sorted.length > dlg.shown) { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn more'; b.textContent = 'Show ' + fmt(Math.min(150, sorted.length - dlg.shown)) + ' more of ' + fmt(sorted.length); b.addEventListener('click', () => { dlg.shown += 150; renderDelegates(); }); box.appendChild(b); }
-    const note = document.createElement('p'); note.className = 'dlg-note'; note.textContent = (reveal ? 'Names and remarks are shown' + (dlg.reveal ? ' until you press Hide names or reload.' : ' for search matches only.') : 'Names and remarks are hidden; initials only.') + ' Hotel status comes from the Arrived column of each hotel list and updates when the dashboard is rebuilt.'; box.appendChild(note);
+    const note = document.createElement('p'); note.className = 'dlg-note'; note.textContent = (reveal ? 'All names and remarks are shown until you press Hide names or reload.' : 'Initials only. Press + on a row to see that delegate\'s name and remark; search narrows the list without revealing names.') + ' Hotel status comes from the Arrived column of each hotel list and updates when the dashboard is rebuilt.'; box.appendChild(note);
   }
   function dlgSetup() {
     const dateEl = $('#dlgDate'), q = $('#dlgSearch'), btn = $('#dlgNames');
     dateEl.value = manilaToday(); dlg.date = dateEl.value;
     dateEl.addEventListener('change', () => { dlg.date = dateEl.value || manilaToday(); dlg.shown = 150; renderDelegates(); });
     let qt; q.addEventListener('input', () => { clearTimeout(qt); qt = setTimeout(() => { dlg.query = q.value; dlg.shown = 150; renderDelegates(); }, 150); });
-    btn.addEventListener('click', () => { dlg.reveal = !dlg.reveal; btn.setAttribute('aria-pressed', String(dlg.reveal)); btn.textContent = dlg.reveal ? 'Hide names' : 'Show names'; renderDelegates(); });
+    btn.addEventListener('click', () => { dlg.reveal = !dlg.reveal; if (!dlg.reveal) dlg.open.clear(); btn.setAttribute('aria-pressed', String(dlg.reveal)); btn.textContent = dlg.reveal ? 'Hide names' : 'Show all names'; renderDelegates(); });
   }
 
   const R = { delegates: renderDelegates, hotels: renderHotels, checkins: renderCheckins, checkouts: renderCheckouts, inhouse: renderInhouse, arrivals: renderArrivals, departures: renderDepartures, gap: renderGap, watch: renderWatch, branches: () => renderTop('branches', 'branches'), languages: () => renderTop('languages', 'languages'), airlines: () => renderTop('airlines', 'airlines') };
