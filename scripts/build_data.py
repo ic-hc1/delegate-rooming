@@ -128,6 +128,10 @@ def _is_delegate_code(v):
     return isinstance(v, str) and re.fullmatch(r"[A-Z0-9]{11}", v.strip()) is not None
 
 
+def _is_group_code(v):
+    return isinstance(v, str) and re.fullmatch(r"[A-Z0-9]{12}", v.strip()) is not None
+
+
 def _looks_like_title(text):
     return "|" in text and "Hotel Delegates Master List" in text
 
@@ -221,14 +225,20 @@ def read_workbook(path):
     # --- delegate rows: a row is a delegate when it carries a delegate code; the Status column marks
     # cancelled ones (grey rows at the bottom). Anything else (moved title/header rows, typed-over
     # cells, totals) is a stray and is ignored. The "No." column is not trusted: hotels type over it.
-    active, cancelled, strays, renumbered = [], 0, 0, 0
+    active, cancelled, strays, renumbered, recovered = [], 0, 0, 0, 0
     for r in rows[first_data_idx:]:
         if r is None or all(c is None for c in r):
             continue
         rec = dict(zip(header, r))
         if not _is_delegate_code(rec.get("Delegate Code")):
-            strays += 1
-            continue
+            # A delegate whose code cell was typed over still has a row number, a name and a group code.
+            no = rec.get("No.")
+            if (isinstance(no, (int, float)) and not isinstance(no, bool)
+                    and _cell_text(rec.get("Name (Last, First)")) and _is_group_code(rec.get("Group Code"))):
+                recovered += 1
+            else:
+                strays += 1
+                continue
         status = _cell_text(rec.get("Status")).lower()
         if status.startswith("cancel"):
             cancelled += 1
@@ -244,6 +254,8 @@ def read_workbook(path):
         notes.append(f"{strays} stray non-delegate row(s) ignored")
     if renumbered:
         notes.append(f"{renumbered} delegate row(s) whose 'No.' cell was typed over were kept")
+    if recovered:
+        notes.append(f"{recovered} delegate row(s) whose delegate code was blanked were kept")
     for n in notes:
         print(f"  note: {fname}: {n}", file=sys.stderr)
     return {"hotel": hotel, "source": source, "generated": generated, "savedAt": file_saved_at(path),
