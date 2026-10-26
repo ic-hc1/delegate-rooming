@@ -52,11 +52,9 @@ def encrypt_payload(plaintext: bytes, password: str) -> dict:
     return {"v": 1, "kdf": "PBKDF2-SHA256", "iter": PBKDF2_ITERATIONS, "cipher": "AES-256-GCM",
             "salt": b64(salt), "iv": b64(iv), "ct": b64(ct)}
 
-# Columns that must never reach the output, in any form.
-FORBIDDEN = {
-    "Name (Last, First)", "Delegate Code", "Group Code", "Group Contact Name",
-    "Flight No.", "Dep. Flight No.", "Kit Box", "HID Remarks",
-}
+# Workbook column names that must never appear as keys in the output. Delegate rows are emitted
+# only inside the encrypted payload, under short keys, and never carry codes or kit boxes.
+FORBIDDEN = {"Delegate Code", "Group Code", "Group Contact Name", "Dep. Flight No.", "Kit Box"}
 
 STANDARD_HEADER = ["No.", "Name (Last, First)", "Group Code", "Delegate Code", "Group Contact", "Gender", "Age", "Minor",
                    "Branch", "SFTS", "Primary Language", "Check-in", "Check-out", "Arrival Date", "Arrival Time", "Airport",
@@ -467,6 +465,29 @@ def guard_against_older(summary, enc_path, password, allow_older):
         print(f"  WARNING: publishing older data ({pr})", file=sys.stderr)
 
 
+def delegate_rows(rows, hotel_key):
+    """Per-delegate rows for the names layer of the dashboard (encrypted payload only)."""
+    out = []
+    for r in rows:
+        ci, co, ad, at = as_date(r.get("Check-in")), as_date(r.get("Check-out")), as_date(r.get("Arrival Date")), as_time(r.get("Arrival Time"))
+        fl = r.get("Flight No.")
+        rm = r.get("HID Remarks")
+        sr = r.get("Special Rooming")
+        out.append({
+            "n": _cell_text(r.get("Name (Last, First)")) or "(no name)",
+            "h": hotel_key,
+            "ci": iso(ci), "co": iso(co), "ad": iso(ad), "at": at.strftime("%H:%M") if at else None,
+            "fl": _cell_text(fl) if isinstance(fl, str) else (str(fl) if fl is not None else None),
+            "ap": _cell_text(r.get("Airport")) or None,
+            "ar": yes(r.get("Arrived")), "wk": yes(r.get("Welcome Kit")),
+            "rm": _cell_text(rm) if isinstance(rm, str) else (str(rm) if rm is not None else None),
+            "sr": _cell_text(sr) if isinstance(sr, str) else None,
+            "sf": yes(r.get("SFTS")), "mi": yes(r.get("Minor")), "gc": yes(r.get("Group Contact")),
+            "br": _cell_text(r.get("Branch")) or None, "lg": _cell_text(r.get("Primary Language")) or None,
+        })
+    return out
+
+
 def scrub_check(obj, path="$"):
     """Fail loudly if anything that looks like a person-level field slipped through."""
     if isinstance(obj, dict):
@@ -503,6 +524,7 @@ def main():
     hotels, all_rows, total_cancelled = [], [], 0
     generated, sources = set(), set()
     seen = {}
+    delegates = []
     for f in files:
         wb = read_workbook(f)
         key = wb["hotel"].lower()
@@ -517,6 +539,7 @@ def main():
                 continue
             hotels = [h for h in hotels if h["name"].lower() != key]
             all_rows = [r for r in all_rows if r.get("_hotel") != key]
+            delegates = [d for d in delegates if d["h"] != slug(prev["hotel"])]
             total_cancelled -= prev["cancelled"]
         seen[key] = wb
         for r in wb["rows"]:
@@ -524,6 +547,7 @@ def main():
         print(f"  {wb['hotel']:<34} delegates={len(wb['rows']):>4}  cancelled={wb['cancelled']}", file=sys.stderr)
         agg = aggregate(wb["rows"], wb["cancelled"])
         hotels.append({"key": slug(wb["hotel"]), "name": wb["hotel"], "savedAt": wb["savedAt"], **agg})
+        delegates.extend(delegate_rows(wb["rows"], slug(wb["hotel"])))
         all_rows.extend(wb["rows"])
         total_cancelled += wb["cancelled"]
         if wb["generated"]:
@@ -541,6 +565,7 @@ def main():
         "hotelCount": len(hotels),
         "overall": overall,
         "hotels": hotels,
+        "delegates": sorted(delegates, key=lambda d: (d["h"], d["ci"] or "", d["n"].lower())),
     }
     scrub_check(summary)
 

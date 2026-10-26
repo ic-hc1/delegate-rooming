@@ -9,6 +9,12 @@ No delegate names, delegate codes, group codes, flight numbers, kit boxes or rem
 ever written to the repository. The source spreadsheets are git-ignored and the Pages
 workflow refuses to deploy if one is present.
 
+The page also carries a **Delegates** section with one row per delegate: hotel status
+from the Arrived column, welcome kit, HID remarks, check-in and flight arrival. Names
+are masked to initials until the viewer searches or presses "Show names". These rows
+exist only inside the encrypted data file; delegate codes, group codes and kit boxes
+are never published.
+
 The published figures are **password protected**: the build script encrypts them
 (AES-256-GCM, key derived from the password with PBKDF2-SHA256) and the page decrypts
 them in the browser after the viewer enters the password. Only the encrypted file
