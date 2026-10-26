@@ -233,6 +233,13 @@
   .chip.crit { color: var(--critical); background: color-mix(in srgb, var(--critical) 12%, transparent); border-color: transparent; font-weight: 600; }
   td.remark { white-space: normal; min-width: 180px; max-width: 360px; color: var(--ink-2); }
   .more { margin-top: 10px; }
+  .dlg-fold { border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
+  .dlg-fold > summary { cursor: pointer; padding: 10px 14px; font-weight: 600; color: var(--ink); list-style: none; display: flex; align-items: center; gap: 8px; }
+  .dlg-fold > summary::-webkit-details-marker { display: none; }
+  .dlg-fold > summary::before { content: '▸'; color: var(--muted); font-size: 12px; }
+  .dlg-fold[open] > summary::before { content: '▾'; }
+  .dlg-fold > summary .n { font-variant-numeric: tabular-nums; background: var(--track-2); border-radius: 999px; padding: 0 8px; font-size: 12px; }
+  .dlg-fold > .inner { padding: 4px 10px 10px; background: var(--surface); border-top: 1px solid var(--border); border-radius: 0 0 10px 10px; }
   .rv { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; margin-right: 8px; border-radius: 50%; border: 1px solid var(--axis); background: var(--surface); color: var(--ink-2); font: inherit; font-size: 18px; line-height: 1; cursor: pointer; vertical-align: middle; flex: none; }
   .rv:hover { background: var(--surface-2); color: var(--ink); }
   .rv[aria-pressed="true"] { background: var(--track-2); border-color: var(--series-1); color: var(--ink); }
@@ -287,7 +294,7 @@
   <div class="grid">
     <section class="card" id="card-delegates">
       <div class="head">
-        <div><h2>Delegates</h2><div class="sub">Arrival status per delegate from the hotel lists: arrived, welcome kit, and HID remarks. Names are hidden; press + on a row to see one delegate, or search to narrow the list.</div></div>
+        <div><h2>Delegates</h2><div class="sub">Arrival status per delegate from the hotel lists: arrived, welcome kit, and HID remarks. Rows appear when you select a hotel or search a name; names show only when you press + on a row.</div></div>
         <div class="dlg-controls">
           <label for="dlgDate">Day<input type="date" id="dlgDate"></label>
           <input type="search" id="dlgSearch" placeholder="Search a name…" aria-label="Search delegates by name" autocomplete="off">
@@ -886,7 +893,7 @@
   }
 
   // ---------- delegates (names layer) ----------
-  const dlg = { tab: 'today', date: null, query: '', reveal: false, shown: 150, open: new Set() };
+  const dlg = { tab: 'today', date: null, query: '', reveal: false, shown: 150, open: new Set(), fold: false, foldKey: '' };
   function manilaToday() { return new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10); }
   function maskName(n) {
     const parts = n.split(',').map(x => x.trim()).filter(Boolean);
@@ -921,8 +928,25 @@
       b.addEventListener('click', () => { dlg.tab = key; dlg.shown = 150; renderDelegates(); }); tabs.appendChild(b);
     });
     const rows = dlg.tab === 'today' ? L.today : dlg.tab === 'nostatus' ? L.nostatus : dlg.tab === 'arrived' ? L.arrived : L.all;
-    const sorted = rows.slice().sort((a, b) => (dlg.tab === 'arrived' ? (b.ci || '').localeCompare(a.ci || '') : (a.ci || '').localeCompare(b.ci || '')) || (a.ad || '').localeCompare(b.ad || '') || (a.at || '').localeCompare(b.at || '') || a.n.localeCompare(b.n));
     box.textContent = '';
+    const scopeKey = hotelKey + '|' + dlg.tab + '|' + L.T; if (dlg.foldKey !== scopeKey) { dlg.fold = false; dlg.foldKey = scopeKey; }
+    let target = box;
+    if (!L.strip.searching && hotelKey === 'all') {
+      const e = document.createElement('div'); e.className = 'empty'; e.textContent = 'Delegate rows are not listed for all hotels at once. Select a hotel above, or search a name.'; box.appendChild(e);
+    } else {
+      if (!L.strip.searching) {
+        const det = document.createElement('details'); det.className = 'dlg-fold'; det.open = dlg.fold;
+        const sm = document.createElement('summary'); sm.appendChild(document.createTextNode((dlg.fold ? 'Hide' : 'Show') + ' the delegates in this list ')); const nn = document.createElement('span'); nn.className = 'n'; nn.textContent = fmt(rows.length); sm.appendChild(nn); det.appendChild(sm);
+        det.addEventListener('toggle', () => { dlg.fold = det.open; sm.firstChild.textContent = (det.open ? 'Hide' : 'Show') + ' the delegates in this list '; });
+        const inner = document.createElement('div'); inner.className = 'inner'; det.appendChild(inner); box.appendChild(det); target = inner;
+      }
+      renderDelegateRows(target, rows, L, hotelsByKey);
+    }
+    const reveal = dlg.reveal;
+    const note = document.createElement('p'); note.className = 'dlg-note'; note.textContent = (reveal ? 'All names and remarks are shown until you press Hide names or reload.' : 'Press + on a row to see that delegate\'s name and remark; search narrows the list without revealing names.') + ' Hotel status comes from the Arrived column of each hotel list and updates when the dashboard is rebuilt.'; box.appendChild(note);
+  }
+  function renderDelegateRows(box, rows, L, hotelsByKey) {
+    const sorted = rows.slice().sort((a, b) => (dlg.tab === 'arrived' ? (b.ci || '').localeCompare(a.ci || '') : (a.ci || '').localeCompare(b.ci || '')) || (a.ad || '').localeCompare(b.ad || '') || (a.at || '').localeCompare(b.at || '') || a.n.localeCompare(b.n));
     if (!sorted.length) { const e = document.createElement('div'); e.className = 'empty'; e.textContent = L.strip.searching ? 'No delegate matches that search in this list.' : 'Nothing in this list.'; box.appendChild(e); return; }
     const reveal = dlg.reveal;
     const showHotel = hotelKey === 'all';
@@ -949,7 +973,6 @@
     });
     t.appendChild(tb); wrap.appendChild(t); box.appendChild(wrap);
     if (sorted.length > dlg.shown) { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn more'; b.textContent = 'Show ' + fmt(Math.min(150, sorted.length - dlg.shown)) + ' more of ' + fmt(sorted.length); b.addEventListener('click', () => { dlg.shown += 150; renderDelegates(); }); box.appendChild(b); }
-    const note = document.createElement('p'); note.className = 'dlg-note'; note.textContent = (reveal ? 'All names and remarks are shown until you press Hide names or reload.' : 'Press + on a row to see that delegate\'s name and remark; search narrows the list without revealing names.') + ' Hotel status comes from the Arrived column of each hotel list and updates when the dashboard is rebuilt.'; box.appendChild(note);
   }
   function dlgSetup() {
     const dateEl = $('#dlgDate'), q = $('#dlgSearch'), btn = $('#dlgNames');
