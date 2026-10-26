@@ -445,12 +445,26 @@ def guard_against_older(summary, enc_path, password, allow_older):
     new_date, new_progress = freshness(summary)
     cur_date, cur_progress = freshness(current)
     older = new_date < cur_date or (new_date == cur_date and new_progress < cur_progress)
-    if older and not allow_older:
-        sys.exit(f"Refusing to publish: the new files (generated {new_date}, {new_progress} arrivals+kits) look older than "
-                 f"the data already published (generated {cur_date}, {cur_progress} arrivals+kits). "
-                 f"Re-run with --allow-older if this is intended.")
+    problems = []
     if older:
-        print("  WARNING: publishing data that looks older than the current data (--allow-older)", file=sys.stderr)
+        problems.append(f"overall: new files (generated {new_date}, {new_progress} arrivals+kits) look older than the "
+                        f"published data (generated {cur_date}, {cur_progress} arrivals+kits)")
+    # Per hotel: a list saved earlier than the published one, or showing less progress, is a stale copy.
+    published = {h["name"]: h for h in current.get("hotels", [])}
+    for h in summary["hotels"]:
+        ph = published.get(h["name"])
+        if not ph:
+            continue
+        new_saved, cur_saved = h.get("savedAt") or "", ph.get("savedAt") or ""
+        new_prog, cur_prog = h["arrived"] + h["welcomeKits"], ph["arrived"] + ph["welcomeKits"]
+        if (new_saved and cur_saved and new_saved < cur_saved) or new_prog < cur_prog:
+            problems.append(f"{h['name']}: incoming file saved {new_saved or '?'} with {new_prog} arrivals+kits, "
+                            f"published one saved {cur_saved or '?'} with {cur_prog}")
+    if problems and not allow_older:
+        sys.exit("Refusing to publish older data:\n  - " + "\n  - ".join(problems) +
+                 "\nSupply the newer file(s), or re-run with --allow-older if this is intended.")
+    for pr in problems:
+        print(f"  WARNING: publishing older data ({pr})", file=sys.stderr)
 
 
 def scrub_check(obj, path="$"):
