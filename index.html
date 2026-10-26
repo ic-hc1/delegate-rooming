@@ -180,6 +180,7 @@
   tfoot td { font-weight: 600; color: var(--ink); border-top: 1px solid var(--axis); }
 
   /* Tooltip */
+  .tip .r .v.wrap { white-space: normal; font-weight: 500; text-align: left; }
   .tip { position: fixed; z-index: 50; pointer-events: none; background: var(--surface); color: var(--ink); border: 1px solid var(--border);
          border-radius: 8px; padding: 8px 10px; font-size: 12.5px; box-shadow: 0 4px 16px rgba(0,0,0,.14); min-width: 140px; max-width: 280px; opacity: 0; transition: opacity .08s; }
   .tip.show { opacity: 1; }
@@ -232,6 +233,9 @@
   .chip.warn { color: var(--ink); background: color-mix(in srgb, var(--warning) 28%, transparent); border-color: transparent; }
   .chip.crit { color: var(--critical); background: color-mix(in srgb, var(--critical) 12%, transparent); border-color: transparent; font-weight: 600; }
   td.remark { white-space: normal; min-width: 180px; max-width: 360px; color: var(--ink-2); }
+  .chip.rmk { cursor: pointer; border-style: dashed; }
+  .chip.rmk:hover, .chip.rmk[aria-expanded="true"] { background: var(--track-2); color: var(--ink); border-style: solid; }
+  .tip.pinned { pointer-events: auto; }
   .more { margin-top: 10px; }
   .dlg-fold { border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
   .dlg-fold > summary { cursor: pointer; padding: 10px 14px; font-weight: 600; color: var(--ink); list-style: none; display: flex; align-items: center; gap: 8px; }
@@ -426,7 +430,7 @@
       const kk = document.createElement('span'); kk.className = 'k';
       if (cls) { const i = document.createElement('i'); i.className = cls; kk.appendChild(i); }
       kk.appendChild(document.createTextNode(k));
-      const vv = document.createElement('span'); vv.className = 'v'; vv.textContent = v;
+      const vv = document.createElement('span'); vv.className = 'v' + (String(v).length > 28 ? ' wrap' : ''); vv.textContent = v;
       r.appendChild(kk); r.appendChild(vv); tip.appendChild(r);
     });
     tip.classList.add('show');
@@ -967,13 +971,28 @@
       const fl = document.createElement('td'); fl.textContent = d.ad ? dlgDate(d.ad) + (d.at ? ' ' + d.at : '') + (d.fl ? ' · ' + d.fl : '') + (d.ap && d.ap !== 'MNL' ? ' (' + d.ap + ')' : '') : 'no flight on file'; cells.push(fl);
       const st = document.createElement('td'); const sc = document.createElement('span'); sc.className = 'chip ' + (d.ar ? 'ok' : 'warn'); sc.textContent = d.ar ? 'Arrived' : 'Not marked'; st.appendChild(sc); cells.push(st);
       const kit = document.createElement('td'); const kc = document.createElement('span'); kc.className = 'chip ' + (d.wk ? 'ok' : d.ar ? 'warn' : ''); kc.textContent = d.wk ? 'Given' : d.ar ? 'Not yet' : '–'; kit.appendChild(kc); cells.push(kit);
-      const rm = document.createElement('td'); rm.className = 'remark'; if (d.rm) { if (open) rm.textContent = d.rm; else { const c = document.createElement('span'); c.className = 'chip'; c.textContent = 'has a remark'; rm.appendChild(c); } } cells.push(rm);
+      const rm = document.createElement('td'); rm.className = 'remark'; if (d.rm) { if (open) rm.textContent = d.rm; else { const c = document.createElement('button'); c.type = 'button'; c.className = 'chip rmk'; c.textContent = 'has a remark'; c.setAttribute('aria-expanded', 'false'); c.setAttribute('aria-label', 'Show the HID remark'); remarkTip(c, d.rm); rm.appendChild(c); } } cells.push(rm);
       const fg = document.createElement('td'); [[d.sf, 'SFTS'], [d.sr, d.sr ? (open ? d.sr : 'Special rooming') : null], [d.mi, 'Minor'], [d.gc, 'Group contact']].forEach(([on, label]) => { if (on && label) { const c = document.createElement('span'); c.className = 'chip'; c.textContent = label; fg.appendChild(c); } }); cells.push(fg);
       cells.forEach(c => tr.appendChild(c)); tb.appendChild(tr);
     });
     t.appendChild(tb); wrap.appendChild(t); box.appendChild(wrap);
     if (sorted.length > dlg.shown) { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn more'; b.textContent = 'Show ' + fmt(Math.min(150, sorted.length - dlg.shown)) + ' more of ' + fmt(sorted.length); b.addEventListener('click', () => { dlg.shown += 150; renderDelegates(); }); box.appendChild(b); }
   }
+  // Remark chip: hover shows the remark in the tooltip; a tap or click pins it until the next tap elsewhere.
+  let pinnedTip = null;
+  function remarkTip(el, text) {
+    const rows = [['HID remark', text]];
+    el.addEventListener('pointerenter', e => { if (!pinnedTip) showTip(e, 'Hotel note', rows); });
+    el.addEventListener('pointerleave', () => { if (!pinnedTip) hideTip(); });
+    el.addEventListener('click', e => {
+      e.stopPropagation();
+      if (pinnedTip === el) { pinnedTip = null; el.setAttribute('aria-expanded', 'false'); tip.classList.remove('pinned'); hideTip(); return; }
+      if (pinnedTip) pinnedTip.setAttribute('aria-expanded', 'false');
+      pinnedTip = el; el.setAttribute('aria-expanded', 'true'); showTip(e, 'Hotel note', rows); tip.classList.add('pinned');
+    });
+  }
+  document.addEventListener('click', () => { if (pinnedTip) { pinnedTip.setAttribute('aria-expanded', 'false'); pinnedTip = null; tip.classList.remove('pinned'); hideTip(); } });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && pinnedTip) { pinnedTip.setAttribute('aria-expanded', 'false'); pinnedTip = null; tip.classList.remove('pinned'); hideTip(); } });
   function dlgSetup() {
     const dateEl = $('#dlgDate'), q = $('#dlgSearch'), btn = $('#dlgNames');
     dateEl.value = manilaToday(); dlg.date = dateEl.value;
