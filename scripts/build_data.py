@@ -507,7 +507,7 @@ def read_flight_changes(path):
         t = as_time(r[ct]) if ct is not None else None
         raw_date = _cell_text(r[cd]) if cd is not None and isinstance(r[cd], str) else ""
         fl = _cell_text(r[cf]) if cf is not None and isinstance(r[cf], str) else (str(r[cf]) if cf is not None and r[cf] is not None else "")
-        out[code] = {
+        rec = {
             "d": iso(d), "t": t.strftime("%H:%M") if t else None,
             "fl": fl if fl.lower() != "unknown" else None,
             "unk": (d is None and (raw_date.lower() == "unknown" or not raw_date)) or fl.lower() == "unknown",
@@ -515,6 +515,19 @@ def read_flight_changes(path):
             "nt": (_cell_text(r[cn]) or None) if cn is not None else None,
             "act": (_cell_text(r[ca]).upper() == "Y") if ca is not None else False,
         }
+        if rec["ck"] and rec["ck"].lower() == "unknown":
+            rec["ck"] = None
+        prev = out.get(code)
+        if prev:
+            # The same delegate listed twice: a later row is normally the update, but keep any known
+            # value the later row lacks, and keep every note.
+            merged = {k: (rec[k] if rec[k] not in (None, False) else prev[k]) for k in ("d", "t", "fl", "ck")}
+            notes = [n for n in (prev["nt"], rec["nt"]) if n]
+            merged["nt"] = " | ".join(dict.fromkeys(notes)) or None
+            merged["act"] = prev["act"] or rec["act"]
+            merged["unk"] = merged["d"] is None or merged["fl"] is None
+            rec = merged
+        out[code] = rec
     return out
 
 
