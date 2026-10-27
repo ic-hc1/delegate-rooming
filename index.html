@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Delegate Rooming Monitor</title>
-<meta name="description" content="Aggregate hotel rooming monitoring across all delegate hotels. Counts only, no personal data.">
+<title>404 Not Found</title>
+<meta name="robots" content="noindex, nofollow">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232a78d6'/%3E%3Cpath d='M8 22V12l8-5 8 5v10' fill='none' stroke='%23fff' stroke-width='2.5' stroke-linejoin='round'/%3E%3Crect x='13' y='15' width='6' height='7' fill='%23fff'/%3E%3C/svg%3E">
 <style>
   :root {
@@ -190,6 +190,11 @@
   .tip .r .k i { width: 12px; height: 2px; display: inline-block; background: var(--series-1); border-radius: 1px; }
   .tip .r .v { font-weight: 650; font-variant-numeric: tabular-nums; }
 
+  /* Decoy page shown until the unlock gesture */
+  .nf { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px 16px; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #24292f; background: #fff; text-align: center; }
+  .nf h1 { font-size: 96px; font-weight: 300; margin: 0; letter-spacing: -0.02em; color: #57606a; user-select: none; -webkit-user-select: none; cursor: default; }
+  .nf p { margin: 6px 0 0; font-size: 16px; color: #57606a; }
+  .nf small { margin-top: 28px; font-size: 12px; color: #8c959f; }
   /* Password gate */
   .gate { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px 16px; }
   .gate-card { width: 100%; max-width: 380px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 26px 24px 22px; box-shadow: 0 6px 24px rgba(0,0,0,.08); }
@@ -257,6 +262,12 @@
 </style>
 </head>
 <body>
+<div class="nf" id="nf" hidden>
+  <h1 id="nfCode">404</h1>
+  <p>Not Found</p>
+  <p>The requested URL was not found on this server.</p>
+  <small>&nbsp;</small>
+</div>
 <div class="gate" id="gate" hidden>
   <form class="gate-card" id="gateForm" novalidate action="#" onsubmit="return false;">
     <div class="gate-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10.5" width="16" height="10" rx="2.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/><circle cx="12" cy="15.5" r="1.2" fill="currentColor" stroke="none"/></svg></div>
@@ -1059,8 +1070,8 @@
   const CRYPTO_TIMEOUT = 30000;
 
   function start(data) {
-    D = data; log('data decrypted, showing dashboard');
-    gate.hidden = true; app.hidden = false;
+    D = data; log('data decrypted, showing dashboard'); realTitle();
+    gate.hidden = true; nf.hidden = true; app.hidden = false;
     const fromHash = location.hash.replace('#', '');
     if (fromHash && D.hotels.some(h => h.key === fromHash)) hotelKey = fromHash;
     try { renderMeta(); renderSelect(); toggleSetup(); dlgSetup(); renderAll(); log('dashboard rendered'); }
@@ -1115,8 +1126,18 @@
     return JSON.parse(new TextDecoder().decode(pt));
   }
   function forget() { try { sessionStorage.removeItem(KEY_STORE); localStorage.removeItem(KEY_STORE); } catch (e) {} }
-  function showGate(msg) { gate.hidden = false; app.hidden = true; gateErr.textContent = msg || ''; setStatus(''); pwInput.value = ''; renderDiag(); setTimeout(() => pwInput.focus(), 0); }
+  // Until the unlock gesture (three taps on the 404, or typing "open"), the page looks like a plain not-found page.
+  const nf = $('#nf'); let gateRevealed = false, pendingMsg = '';
+  function revealGate() { gateRevealed = true; nf.hidden = true; gate.hidden = false; app.hidden = true; gateErr.textContent = pendingMsg; setStatus(''); renderDiag(); setTimeout(() => pwInput.focus(), 0); }
+  function showGate(msg) { pendingMsg = msg || ''; app.hidden = true; if (gateRevealed) { gate.hidden = false; gateErr.textContent = pendingMsg; setStatus(''); pwInput.value = ''; renderDiag(); setTimeout(() => pwInput.focus(), 0); } else { gate.hidden = true; nf.hidden = false; } }
+  (function gesture() {
+    let taps = [];
+    $('#nfCode').addEventListener('click', () => { const now = Date.now(); taps = taps.filter(t => now - t < 2500); taps.push(now); if (taps.length >= 3) { taps = []; revealGate(); } });
+    let typed = '';
+    document.addEventListener('keydown', e => { if (gateRevealed || nf.hidden || e.key.length !== 1) return; typed = (typed + e.key.toLowerCase()).slice(-4); if (typed === 'open') revealGate(); });
+  })();
   function disableGate(msg) { showGate(msg); pwSubmit.disabled = true; pwSubmit.textContent = 'Unavailable'; pwInput.disabled = true; }
+  function realTitle() { document.title = 'Delegate Rooming Monitor'; }
   function describe(e) { return (e && e.name ? e.name : 'Error') + (e && e.message ? ': ' + e.message : ''); }
 
   async function unlockWithStored(E) {

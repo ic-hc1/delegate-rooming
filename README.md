@@ -15,6 +15,10 @@ are masked to initials until the viewer searches or presses "Show names". These 
 exist only inside the encrypted data file; delegate codes, group codes and kit boxes
 are never published.
 
+Without the password the page looks like a plain "404 Not Found" page. Tapping the
+large 404 three times, or typing `open`, reveals the password box. A device that
+ticked "Keep me signed in" skips both.
+
 The published figures are **password protected**: the build script encrypts them
 (AES-256-GCM, key derived from the password with PBKDF2-SHA256) and the page decrypts
 them in the browser after the viewer enters the password. Only the encrypted file
