@@ -234,6 +234,7 @@
   .chip.crit { color: var(--critical); background: color-mix(in srgb, var(--critical) 12%, transparent); border-color: transparent; font-weight: 600; }
   td.remark { white-space: normal; min-width: 180px; max-width: 360px; color: var(--ink-2); }
   .chip.rmk { cursor: pointer; border-style: dashed; }
+  .chip.rebook { background: color-mix(in srgb, var(--series-2) 14%, transparent); color: var(--ink); border-color: transparent; border-style: solid; white-space: normal; }
   .chip.rmk:hover, .chip.rmk[aria-expanded="true"] { background: var(--track-2); color: var(--ink); border-style: solid; }
   .tip.pinned { pointer-events: auto; }
   .more { margin-top: 10px; }
@@ -876,14 +877,16 @@
       ['Same-day departure flights before 9 AM', c.departure.before9am, 'info'],
       ['Arriving via Clark (CRK) instead of Manila', (c.airports.find(a => a[0] === 'CRK') || [0, 0])[1], 'info'],
       ['Arrival airport not set', (c.airports.find(a => a[0] === 'Not set') || [0, 0])[1], 'info'],
-      ['Cancelled bookings (excluded from all counts)', c.cancelled, 'info']
+      ['Cancelled bookings (excluded from all counts)', c.cancelled, 'info'],
+      ['Flight changes on file' + (D.flightChanges ? ' (' + D.flightChanges.file.replace(/\.xlsx$/i, '') + ')' : ''), c.flightChanges || 0, 'info'],
+      ['Flight changed and not yet marked arrived', c.flightChangesNotArrived || 0, (c.flightChangesNotArrived ? 'warn' : 'good')]
     ];
     const t = document.createElement('table');
     list.forEach(([label, v, cls]) => {
       const tr = document.createElement('tr'); const a = document.createElement('td'); a.style.whiteSpace = 'normal';
       if (cls === 'critical') { const f = document.createElement('span'); f.className = 'flag'; f.appendChild(iconSvg('warn')); f.appendChild(document.createTextNode(label)); a.appendChild(f); } else a.textContent = label;
       const b = document.createElement('td'); b.className = 'num'; b.textContent = fmt(v); b.style.fontWeight = '600';
-      if (cls === 'good') b.style.color = 'var(--good-text)'; if (cls === 'critical') b.style.color = 'var(--critical)';
+      if (cls === 'good') b.style.color = 'var(--good-text)'; if (cls === 'critical') b.style.color = 'var(--critical)'; if (cls === 'warn') b.style.color = 'var(--ink)';
       tr.appendChild(a); tr.appendChild(b); t.appendChild(tr);
     });
     box.appendChild(t);
@@ -906,15 +909,19 @@
     return ini(n);
   }
   const fold = x => (x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const effArrival = d => (d.fc && d.fc.d) ? d.fc.d : d.ad;
+  const rebookedLater = (d, T) => !!(d.fc && (d.fc.unk || (d.fc.d && d.fc.d >= T)));
   function dlgLists() {
     const T = dlg.date || manilaToday();
     const all = D.delegates.filter(d => hotelKey === 'all' || d.h === hotelKey);
     const q = fold(dlg.query.trim()); const matches = q.length >= 2 ? all.filter(d => fold(d.n).includes(q)) : all;
-    const today = matches.filter(d => !d.ar && (d.ci === T || d.ad === T));
+    const today = matches.filter(d => !d.ar && (d.ci === T || effArrival(d) === T));
     const nostatus = matches.filter(d => !d.ar && d.ci && d.ci < T);
     const arrived = matches.filter(d => d.ar);
+    const rebooked = matches.filter(d => d.fc);
     const expT = all.filter(d => d.ci === T);
-    return { T, all: matches, today, nostatus, arrived, strip: { expected: expT.length, arrivedT: expT.filter(d => d.ar).length, pendingT: expT.filter(d => !d.ar).length, overdue: all.filter(d => !d.ar && d.ci && d.ci < T).length, searching: q.length >= 2, hits: q.length >= 2 ? matches.length : null } };
+    const overdueAll = all.filter(d => !d.ar && d.ci && d.ci < T);
+    return { T, all: matches, today, nostatus, arrived, rebooked, strip: { expected: expT.length, arrivedT: expT.filter(d => d.ar).length, pendingT: expT.filter(d => !d.ar).length, overdue: overdueAll.filter(d => !rebookedLater(d, T)).length, overdueRebooked: overdueAll.filter(d => rebookedLater(d, T)).length, changedPending: all.filter(d => d.fc && !d.ar).length, searching: q.length >= 2, hits: q.length >= 2 ? matches.length : null } };
   }
   function dlgDate(s) { return s ? shortDate(s) : '–'; }
   function daysBetween(a, b) { return Math.round((parseDate(b) - parseDate(a)) / 864e5); }
@@ -923,15 +930,15 @@
     const L = dlgLists(); const box = $('#viz-delegates'); const hotelsByKey = Object.fromEntries(D.hotels.map(h => [h.key, h.name]));
     const dateEl = $('#dlgDate'); if (!dateEl.value) dateEl.value = L.T;
     const strip = $('#dlgStrip'); strip.textContent = '';
-    [['Check-ins due ' + longDate(L.T), L.strip.expected], ['of which marked arrived', L.strip.arrivedT], ['still pending', L.strip.pendingT], ['overdue from earlier days, no status', L.strip.overdue]].forEach(([k, v]) => { const sp = document.createElement('span'); sp.appendChild(document.createTextNode(k + ' ')); const b = document.createElement('b'); b.textContent = fmt(v); sp.appendChild(b); strip.appendChild(sp); });
+    [['Check-ins due ' + longDate(L.T), L.strip.expected], ['of which marked arrived', L.strip.arrivedT], ['still pending', L.strip.pendingT], ['overdue from earlier days, no status', L.strip.overdue], ['rebooked to a later flight, not yet in hotel', L.strip.overdueRebooked]].forEach(([k, v]) => { const sp = document.createElement('span'); sp.appendChild(document.createTextNode(k + ' ')); const b = document.createElement('b'); b.textContent = fmt(v); sp.appendChild(b); strip.appendChild(sp); });
     if (L.strip.searching) { const sp = document.createElement('span'); sp.appendChild(document.createTextNode('search matches ')); const b = document.createElement('b'); b.textContent = fmt(L.strip.hits); sp.appendChild(b); strip.appendChild(sp); }
     const tabs = $('#dlgTabs'); tabs.textContent = '';
-    [['today', 'Arriving ' + (L.T === manilaToday() ? 'today' : shortDate(L.T)), L.today.length, ''], ['nostatus', 'Expected, no status', L.nostatus.length, L.nostatus.length ? 'crit' : ''], ['arrived', 'Arrived', L.arrived.length, ''], ['all', 'All', L.all.length, '']].forEach(([key, label, n, cls]) => {
+    [['today', 'Arriving ' + (L.T === manilaToday() ? 'today' : shortDate(L.T)), L.today.length, ''], ['nostatus', 'Expected, no status', L.nostatus.length, L.nostatus.length ? 'crit' : ''], ['rebooked', 'Flight changed', L.rebooked.length, ''], ['arrived', 'Arrived', L.arrived.length, ''], ['all', 'All', L.all.length, '']].forEach(([key, label, n, cls]) => {
       const b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', String(dlg.tab === key)); b.className = cls;
       b.appendChild(document.createTextNode(label)); const nn = document.createElement('span'); nn.className = 'n'; nn.textContent = fmt(n); b.appendChild(nn);
       b.addEventListener('click', () => { dlg.tab = key; dlg.shown = 150; renderDelegates(); }); tabs.appendChild(b);
     });
-    const rows = dlg.tab === 'today' ? L.today : dlg.tab === 'nostatus' ? L.nostatus : dlg.tab === 'arrived' ? L.arrived : L.all;
+    const rows = dlg.tab === 'today' ? L.today : dlg.tab === 'nostatus' ? L.nostatus : dlg.tab === 'rebooked' ? L.rebooked : dlg.tab === 'arrived' ? L.arrived : L.all;
     box.textContent = '';
     const scopeKey = hotelKey + '|' + dlg.tab + '|' + L.T; if (dlg.foldKey !== scopeKey) { dlg.fold = false; dlg.foldKey = scopeKey; }
     let target = box;
@@ -950,7 +957,7 @@
     const note = document.createElement('p'); note.className = 'dlg-note'; note.textContent = (reveal ? 'All names and remarks are shown until you press Hide names or reload.' : 'Press + on a row to see that delegate\'s name and remark; search narrows the list without revealing names.') + ' Hotel status comes from the Arrived column of each hotel list and updates when the dashboard is rebuilt.'; box.appendChild(note);
   }
   function renderDelegateRows(box, rows, L, hotelsByKey) {
-    const sorted = rows.slice().sort((a, b) => (dlg.tab === 'arrived' ? (b.ci || '').localeCompare(a.ci || '') : (a.ci || '').localeCompare(b.ci || '')) || (a.ad || '').localeCompare(b.ad || '') || (a.at || '').localeCompare(b.at || '') || a.n.localeCompare(b.n));
+    const sorted = rows.slice().sort((a, b) => (dlg.tab === 'nostatus' ? (rebookedLater(a, L.T) - rebookedLater(b, L.T)) : 0) || (dlg.tab === 'arrived' ? (b.ci || '').localeCompare(a.ci || '') : (a.ci || '').localeCompare(b.ci || '')) || (effArrival(a) || '').localeCompare(effArrival(b) || '') || (a.at || '').localeCompare(b.at || '') || a.n.localeCompare(b.n));
     if (!sorted.length) { const e = document.createElement('div'); e.className = 'empty'; e.textContent = L.strip.searching ? 'No delegate matches that search in this list.' : 'Nothing in this list.'; box.appendChild(e); return; }
     const reveal = dlg.reveal;
     const showHotel = hotelKey === 'all';
@@ -967,9 +974,20 @@
       const nm = document.createElement('span'); nm.className = 'nm' + (open ? '' : ' masked'); nm.textContent = open ? d.n : '';
       name.appendChild(rb); name.appendChild(nm); cells.push(name);
       if (showHotel) { const c = document.createElement('td'); c.textContent = hotelsByKey[d.h] || d.h; cells.push(c); }
-      const ci = document.createElement('td'); ci.textContent = dlgDate(d.ci); if (!d.ar && d.ci && d.ci < L.T) { const sp = document.createElement('span'); sp.className = 'chip crit'; sp.textContent = 'overdue ' + daysBetween(d.ci, L.T) + ' d'; ci.appendChild(document.createTextNode(' ')); ci.appendChild(sp); } cells.push(ci);
-      const fl = document.createElement('td'); fl.textContent = d.ad ? dlgDate(d.ad) + (d.at ? ' ' + d.at : '') + (d.fl ? ' · ' + d.fl : '') + (d.ap && d.ap !== 'MNL' ? ' (' + d.ap + ')' : '') : 'no flight on file'; cells.push(fl);
-      const st = document.createElement('td'); const sc = document.createElement('span'); sc.className = 'chip ' + (d.ar ? 'ok' : 'warn'); sc.textContent = d.ar ? 'Arrived' : 'Not marked'; st.appendChild(sc); cells.push(st);
+      const ci = document.createElement('td'); ci.textContent = dlgDate(d.ci); if (!d.ar && d.ci && d.ci < L.T && !rebookedLater(d, L.T)) { const sp = document.createElement('span'); sp.className = 'chip crit'; sp.textContent = 'overdue ' + daysBetween(d.ci, L.T) + ' d'; ci.appendChild(document.createTextNode(' ')); ci.appendChild(sp); } cells.push(ci);
+      const fl = document.createElement('td');
+      if (d.fc) { const old = d.ad ? dlgDate(d.ad) + (d.at ? ' ' + d.at : '') + (d.fl ? ' · ' + d.fl : '') : 'no flight on file'; const neu = d.fc.d ? dlgDate(d.fc.d) + (d.fc.t ? ' ' + d.fc.t : '') + (d.fc.fl ? ' · ' + d.fc.fl : '') : 'new arrival unknown'; fl.textContent = neu; const s = document.createElement('div'); s.style.cssText = 'color: var(--muted); font-size: 11.5px; text-decoration: line-through;'; s.textContent = old; fl.appendChild(s); }
+      else fl.textContent = d.ad ? dlgDate(d.ad) + (d.at ? ' ' + d.at : '') + (d.fl ? ' · ' + d.fl : '') + (d.ap && d.ap !== 'MNL' ? ' (' + d.ap + ')' : '') : 'no flight on file';
+      cells.push(fl);
+      const st = document.createElement('td'); const sc = document.createElement('span'); sc.className = 'chip ' + (d.ar ? 'ok' : 'warn'); sc.textContent = d.ar ? 'Arrived' : 'Not marked'; st.appendChild(sc);
+      if (d.fc) {
+        const rb = document.createElement('button'); rb.type = 'button'; rb.className = 'chip rmk rebook';
+        const why = d.fc.unk && !d.fc.d ? 'Rebooked · new arrival unknown' : d.fc.d > L.T ? 'Rebooked · arrives ' + shortDate(d.fc.d) : d.fc.d === L.T ? 'Rebooked · due today' : d.ar ? 'Rebooked' : 'Rebooked · landed ' + shortDate(d.fc.d) + ', not marked';
+        rb.textContent = why + (d.fc.ck ? ' · ' + d.fc.ck.toLowerCase() + ' check-in' : '');
+        const detail = [d.fc.d ? 'New arrival ' + longDate(d.fc.d) + (d.fc.t ? ' ' + d.fc.t : '') : 'New arrival date unknown', d.fc.fl ? 'Flight ' + d.fc.fl : 'Flight not yet known', d.fc.ck ? 'Hotel check-in: ' + d.fc.ck : '', d.fc.act ? 'An activity is affected' : '', d.fc.nt ? 'Note: ' + d.fc.nt : ''].filter(Boolean).join('. ');
+        remarkTip(rb, detail); st.appendChild(document.createTextNode(' ')); st.appendChild(rb);
+      }
+      cells.push(st);
       const kit = document.createElement('td'); const kc = document.createElement('span'); kc.className = 'chip ' + (d.wk ? 'ok' : d.ar ? 'warn' : ''); kc.textContent = d.wk ? 'Given' : d.ar ? 'Not yet' : '–'; kit.appendChild(kc); cells.push(kit);
       const rm = document.createElement('td'); rm.className = 'remark'; if (d.rm) { if (open) rm.textContent = d.rm; else { const c = document.createElement('button'); c.type = 'button'; c.className = 'chip rmk'; c.textContent = 'has a remark'; c.setAttribute('aria-expanded', 'false'); c.setAttribute('aria-label', 'Show the HID remark'); remarkTip(c, d.rm); rm.appendChild(c); } } cells.push(rm);
       const fg = document.createElement('td'); [[d.sf, 'SFTS'], [d.sr, d.sr ? (open ? d.sr : 'Special rooming') : null], [d.mi, 'Minor'], [d.gc, 'Group contact']].forEach(([on, label]) => { if (on && label) { const c = document.createElement('span'); c.className = 'chip'; c.textContent = label; fg.appendChild(c); } }); cells.push(fg);
@@ -981,14 +999,15 @@
   // Remark chip: hover shows the remark in the tooltip; a tap or click pins it until the next tap elsewhere.
   let pinnedTip = null;
   function remarkTip(el, text) {
-    const rows = [['HID remark', text]];
-    el.addEventListener('pointerenter', e => { if (!pinnedTip) showTip(e, 'Hotel note', rows); });
+    const rows = [[el.classList.contains('rebook') ? 'Details' : 'HID remark', text]];
+    const title = el.classList.contains('rebook') ? 'Flight change' : 'Hotel note';
+    el.addEventListener('pointerenter', e => { if (!pinnedTip) showTip(e, title, rows); });
     el.addEventListener('pointerleave', () => { if (!pinnedTip) hideTip(); });
     el.addEventListener('click', e => {
       e.stopPropagation();
       if (pinnedTip === el) { pinnedTip = null; el.setAttribute('aria-expanded', 'false'); tip.classList.remove('pinned'); hideTip(); return; }
       if (pinnedTip) pinnedTip.setAttribute('aria-expanded', 'false');
-      pinnedTip = el; el.setAttribute('aria-expanded', 'true'); showTip(e, 'Hotel note', rows); tip.classList.add('pinned');
+      pinnedTip = el; el.setAttribute('aria-expanded', 'true'); showTip(e, title, rows); tip.classList.add('pinned');
     });
   }
   document.addEventListener('click', () => { if (pinnedTip) { pinnedTip.setAttribute('aria-expanded', 'false'); pinnedTip = null; tip.classList.remove('pinned'); hideTip(); } });

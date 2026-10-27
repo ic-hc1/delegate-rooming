@@ -279,7 +279,7 @@ def top_counts(counter, n=TOP_N):
     return head
 
 
-def aggregate(rows, cancelled, adults_by_group_hotel=None):
+def aggregate(rows, cancelled, changes=None):
     """rows: list of dict records. Returns aggregate-only dict."""
     n = len(rows)
     groups = {r.get("Group Code") for r in rows if r.get("Group Code")}
@@ -376,8 +376,12 @@ def aggregate(rows, cancelled, adults_by_group_hotel=None):
         grid_rows.insert(0, {"date": "earlier", "label": f"Before {window_start.strftime('%b %d')}",
                              "counts": folded, "total": sum(folded)})
 
+    changes = changes or {}
+    changed = [r for r in rows if _cell_text(r.get("Delegate Code")) in changes]
     out = {
         "delegates": n,
+        "flightChanges": len(changed),
+        "flightChangesNotArrived": sum(1 for r in changed if not yes(r.get("Arrived"))),
         "cancelled": cancelled,
         "groups": len(groups),
         "groupContacts": sum(1 for r in rows if yes(r.get("Group Contact"))),
@@ -477,7 +481,44 @@ def guard_against_older(summary, enc_path, password, allow_older):
         print(f"  WARNING: publishing older data ({pr})", file=sys.stderr)
 
 
-def delegate_rows(rows, hotel_key):
+def read_flight_changes(path):
+    """Planners' 'Change of flights' sheet: delegate ID -> new arrival details. IDs look like
+    G-43P2-JQ2B-WXG and match the 11-character delegate code once the prefix and dashes go."""
+    wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
+    ws = wb.worksheets[0]
+    rows = list(ws.iter_rows(values_only=True))
+    hi = next((i for i, r in enumerate(rows[:10]) if r and "Delegate ID" in r), None)
+    if hi is None:
+        raise ValueError(f"{os.path.basename(path)}: no 'Delegate ID' column found")
+    hdr = [str(h).strip() if h is not None else "" for h in rows[hi]]
+    col = lambda name: next((i for i, h in enumerate(hdr) if h.lower().startswith(name.lower())), None)
+    ci, cd, ct, cf, cc, cn, ca = (col("Delegate ID"), col("New Arrival Date"), col("New Arrival Time"), col("New Flight"),
+                                  col("Hotel Check-in"), col("Notes"), col("Activity affected"))
+    out = {}
+    for r in rows[hi + 1:]:
+        if not r or ci is None or r[ci] is None:
+            continue
+        code = re.sub(r"[^A-Z0-9]", "", str(r[ci]).upper())
+        if code.startswith("G") and len(code) == 12:
+            code = code[1:]
+        if not re.fullmatch(r"[A-Z0-9]{11}", code):
+            continue
+        d = as_date(r[cd]) if cd is not None else None
+        t = as_time(r[ct]) if ct is not None else None
+        raw_date = _cell_text(r[cd]) if cd is not None and isinstance(r[cd], str) else ""
+        fl = _cell_text(r[cf]) if cf is not None and isinstance(r[cf], str) else (str(r[cf]) if cf is not None and r[cf] is not None else "")
+        out[code] = {
+            "d": iso(d), "t": t.strftime("%H:%M") if t else None,
+            "fl": fl if fl.lower() != "unknown" else None,
+            "unk": (d is None and (raw_date.lower() == "unknown" or not raw_date)) or fl.lower() == "unknown",
+            "ck": (_cell_text(r[cc]) or None) if cc is not None else None,
+            "nt": (_cell_text(r[cn]) or None) if cn is not None else None,
+            "act": (_cell_text(r[ca]).upper() == "Y") if ca is not None else False,
+        }
+    return out
+
+
+def delegate_rows(rows, hotel_key, changes=None):
     """Per-delegate rows for the names layer of the dashboard (encrypted payload only)."""
     out = []
     for r in rows:
@@ -485,6 +526,8 @@ def delegate_rows(rows, hotel_key):
         fl = r.get("Flight No.")
         rm = r.get("HID Remarks")
         sr = r.get("Special Rooming")
+        code = _cell_text(r.get("Delegate Code"))
+        fc = (changes or {}).get(code)
         out.append({
             "n": _cell_text(r.get("Name (Last, First)")) or "(no name)",
             "h": hotel_key,
@@ -496,6 +539,7 @@ def delegate_rows(rows, hotel_key):
             "sr": _cell_text(sr) if isinstance(sr, str) else None,
             "sf": yes(r.get("SFTS")), "mi": yes(r.get("Minor")), "gc": yes(r.get("Group Contact")),
             "br": _cell_text(r.get("Branch")) or None, "lg": _cell_text(r.get("Primary Language")) or None,
+            **({"fc": fc} if fc else {}),
         })
     return out
 
@@ -518,6 +562,8 @@ def main():
     ap.add_argument("--out", default="data", help="output folder (default: data)")
     ap.add_argument("--password", default=os.environ.get("DASHBOARD_PASSWORD"),
                     help="password that protects the published dashboard (or set DASHBOARD_PASSWORD)")
+    ap.add_argument("--changes", default=None,
+                    help="planners' 'Change of flights' workbook; marks rebooked delegates with their new arrival")
     ap.add_argument("--allow-older", action="store_true",
                     help="replace the published data even if the new files look older than it")
     ap.add_argument("--plain", action="store_true",
@@ -537,6 +583,10 @@ def main():
     generated, sources = set(), set()
     seen = {}
     delegates = []
+    changes = {}
+    if args.changes:
+        changes = read_flight_changes(args.changes)
+        print(f"  flight changes: {len(changes)} delegates in {os.path.basename(args.changes)}", file=sys.stderr)
     for f in files:
         wb = read_workbook(f)
         key = wb["hotel"].lower()
@@ -557,9 +607,9 @@ def main():
         for r in wb["rows"]:
             r["_hotel"] = key
         print(f"  {wb['hotel']:<34} delegates={len(wb['rows']):>4}  cancelled={wb['cancelled']}", file=sys.stderr)
-        agg = aggregate(wb["rows"], wb["cancelled"])
+        agg = aggregate(wb["rows"], wb["cancelled"], changes)
         hotels.append({"key": slug(wb["hotel"]), "name": wb["hotel"], "savedAt": wb["savedAt"], **agg})
-        delegates.extend(delegate_rows(wb["rows"], slug(wb["hotel"])))
+        delegates.extend(delegate_rows(wb["rows"], slug(wb["hotel"]), changes))
         all_rows.extend(wb["rows"])
         total_cancelled += wb["cancelled"]
         if wb["generated"]:
@@ -568,13 +618,19 @@ def main():
             sources.add(wb["source"])
 
     hotels.sort(key=lambda h: -h["delegates"])
-    overall = aggregate(all_rows, total_cancelled)
+    overall = aggregate(all_rows, total_cancelled, changes)
+    if changes:
+        known = {_cell_text(r.get("Delegate Code")) for r in all_rows}
+        unmatched = [c for c in changes if c not in known]
+        if unmatched:
+            print(f"  WARNING: {len(unmatched)} flight-change row(s) match no delegate in the hotel lists", file=sys.stderr)
     summary = {
         "title": "Delegate Rooming Monitor",
         "generated": " / ".join(sorted(generated)) or None,
         "source": " / ".join(sorted(sources)) or None,
         "builtAt": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "hotelCount": len(hotels),
+        "flightChanges": ({"file": os.path.basename(args.changes), "savedAt": file_saved_at(args.changes), "count": len(changes)} if args.changes else None),
         "overall": overall,
         "hotels": hotels,
         "delegates": sorted(delegates, key=lambda d: (d["h"], d["ci"] or "", d["n"].lower())),

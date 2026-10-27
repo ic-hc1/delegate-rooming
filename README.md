@@ -53,6 +53,13 @@ Once GitHub Pages is enabled (see below) the dashboard is served at
    workbook, counts `Arrived` and `Welcome Kit` as given wherever the cell says `Yes`,
    excludes the grey cancelled rows, and aborts if any person-level column would reach
    the output.
+   If the planners' *Change of flights* workbook is available, pass it too so rebooked
+   delegates show their new arrival and are not counted as overdue:
+
+   ```bash
+   python3 scripts/build_data.py input/ --changes input/Changed_Flights.xlsx --password '...'
+   ```
+
 3. Commit and push `data/summary.enc.js`. The Pages workflow redeploys the site
    automatically.
 
