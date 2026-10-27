@@ -28,7 +28,7 @@ workflow refuses to deploy if one is present.
 ## Live page
 
 Once GitHub Pages is enabled (see below) the dashboard is served at
-`https://ic-hc1.github.io/delegate-rooming-monitoring/`.
+`https://ic-hc1.github.io/delegate-rooming/`.
 
 ## Layout
 
