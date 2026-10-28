@@ -768,7 +768,7 @@
 
   function renderKpis() {
     const c = current(); const k = $('#kpis'); k.textContent = '';
-    k.appendChild(tile('Delegates expected', fmt(c.delegates), fmt(c.groups) + ' groups · ' + fmt(c.groupContacts) + ' group contacts', null, null, null, true));
+    k.appendChild(tile('Delegates expected', fmt(c.delegates), fmt(c.groups) + ' groups · ' + fmt(c.groupContacts) + ' group contacts' + (c.cancelled ? ' · ' + fmt(c.cancelled) + ' cancelled excluded' : ''), null, null, null, true));
     const notYet = c.delegates - c.arrived;
     k.appendChild(tile('Arrived', fmt(c.arrived), c.arrived ? pct(c.arrived, c.delegates) + '% · ' + fmt(notYet) + ' not yet arrived' : 'No arrivals recorded yet', c.arrived ? 'good' : null, null, pct(c.arrived, c.delegates)));
     k.appendChild(tile('Welcome kits given', fmt(c.welcomeKits), c.arrivedNoKit ? fmt(c.arrivedNoKit) + ' arrived, no kit yet' : (c.arrived ? 'Every arrival has a kit' : 'Tracked as kits are handed out'), c.arrivedNoKit ? 'warn' : (c.arrived ? 'good' : null), c.arrivedNoKit ? 'warn' : (c.arrived ? 'ok' : null), c.welcomeKits ? pct(c.welcomeKits, c.delegates) : null));
@@ -888,7 +888,8 @@
       ['Same-day departure flights before 9 AM', c.departure.before9am, 'info'],
       ['Arriving via Clark (CRK) instead of Manila', (c.airports.find(a => a[0] === 'CRK') || [0, 0])[1], 'info'],
       ['Arrival airport not set', (c.airports.find(a => a[0] === 'Not set') || [0, 0])[1], 'info'],
-      ['Cancelled bookings (excluded from all counts)', c.cancelled, 'info'],
+      ['Cancelled by the hotel list (excluded)', c.cancelled - (c.cancelledByList || 0), 'info'],
+      ['Cancelled by the planners\' list' + (D.cancellations ? ' (' + fmt(D.cancellations.count) + ' on the list, ' + fmt(D.cancellations.inLists) + ' still in hotel lists)' : ''), c.cancelledByList || 0, 'info'],
       ['Flight changes on file' + (D.flightChanges ? ' (' + D.flightChanges.file.replace(/\.xlsx$/i, '') + ')' : ''), c.flightChanges || 0, 'info'],
       ['Flight changed and not yet marked arrived', c.flightChangesNotArrived || 0, (c.flightChangesNotArrived ? 'warn' : 'good')]
     ];
@@ -924,15 +925,18 @@
   const rebookedLater = (d, T) => !!(d.fc && (d.fc.unk || (d.fc.d && d.fc.d >= T)));
   function dlgLists() {
     const T = dlg.date || manilaToday();
-    const all = D.delegates.filter(d => hotelKey === 'all' || d.h === hotelKey);
-    const q = fold(dlg.query.trim()); const matches = q.length >= 2 ? all.filter(d => fold(d.n).includes(q)) : all;
+    const scoped = D.delegates.filter(d => hotelKey === 'all' || d.h === hotelKey);
+    const q = fold(dlg.query.trim());
+    const cancelled = (q.length >= 2 ? scoped.filter(d => fold(d.n).includes(q)) : scoped).filter(d => d.cx);
+    const all = scoped.filter(d => !d.cx);
+    const matches = q.length >= 2 ? all.filter(d => fold(d.n).includes(q)) : all;
     const today = matches.filter(d => !d.ar && (d.ci === T || effArrival(d) === T));
     const nostatus = matches.filter(d => !d.ar && d.ci && d.ci < T);
     const arrived = matches.filter(d => d.ar);
     const rebooked = matches.filter(d => d.fc);
     const expT = all.filter(d => d.ci === T);
     const overdueAll = all.filter(d => !d.ar && d.ci && d.ci < T);
-    return { T, all: matches, today, nostatus, arrived, rebooked, strip: { expected: expT.length, arrivedT: expT.filter(d => d.ar).length, pendingT: expT.filter(d => !d.ar).length, overdue: overdueAll.filter(d => !rebookedLater(d, T)).length, overdueRebooked: overdueAll.filter(d => rebookedLater(d, T)).length, changedPending: all.filter(d => d.fc && !d.ar).length, searching: q.length >= 2, hits: q.length >= 2 ? matches.length : null } };
+    return { T, all: matches, today, nostatus, arrived, rebooked, cancelled, strip: { expected: expT.length, arrivedT: expT.filter(d => d.ar).length, pendingT: expT.filter(d => !d.ar).length, overdue: overdueAll.filter(d => !rebookedLater(d, T)).length, overdueRebooked: overdueAll.filter(d => rebookedLater(d, T)).length, changedPending: all.filter(d => d.fc && !d.ar).length, searching: q.length >= 2, hits: q.length >= 2 ? matches.length : null } };
   }
   function dlgDate(s) { return s ? shortDate(s) : '–'; }
   function daysBetween(a, b) { return Math.round((parseDate(b) - parseDate(a)) / 864e5); }
@@ -944,12 +948,12 @@
     [['Check-ins due ' + longDate(L.T), L.strip.expected], ['of which marked arrived', L.strip.arrivedT], ['still pending', L.strip.pendingT], ['overdue from earlier days, no status', L.strip.overdue], ['rebooked to a later flight, not yet in hotel', L.strip.overdueRebooked]].forEach(([k, v]) => { const sp = document.createElement('span'); sp.appendChild(document.createTextNode(k + ' ')); const b = document.createElement('b'); b.textContent = fmt(v); sp.appendChild(b); strip.appendChild(sp); });
     if (L.strip.searching) { const sp = document.createElement('span'); sp.appendChild(document.createTextNode('search matches ')); const b = document.createElement('b'); b.textContent = fmt(L.strip.hits); sp.appendChild(b); strip.appendChild(sp); }
     const tabs = $('#dlgTabs'); tabs.textContent = '';
-    [['today', 'Arriving ' + (L.T === manilaToday() ? 'today' : shortDate(L.T)), L.today.length, ''], ['nostatus', 'Expected, no status', L.nostatus.length, L.nostatus.length ? 'crit' : ''], ['rebooked', 'Flight changed', L.rebooked.length, ''], ['arrived', 'Arrived', L.arrived.length, ''], ['all', 'All', L.all.length, '']].forEach(([key, label, n, cls]) => {
+    [['today', 'Arriving ' + (L.T === manilaToday() ? 'today' : shortDate(L.T)), L.today.length, ''], ['nostatus', 'Expected, no status', L.nostatus.length, L.nostatus.length ? 'crit' : ''], ['rebooked', 'Flight changed', L.rebooked.length, ''], ['arrived', 'Arrived', L.arrived.length, ''], ['all', 'All', L.all.length, ''], ['cancelled', 'Cancelled (list)', L.cancelled.length, '']].forEach(([key, label, n, cls]) => {
       const b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', String(dlg.tab === key)); b.className = cls;
       b.appendChild(document.createTextNode(label)); const nn = document.createElement('span'); nn.className = 'n'; nn.textContent = fmt(n); b.appendChild(nn);
       b.addEventListener('click', () => { dlg.tab = key; dlg.shown = 150; renderDelegates(); }); tabs.appendChild(b);
     });
-    const rows = dlg.tab === 'today' ? L.today : dlg.tab === 'nostatus' ? L.nostatus : dlg.tab === 'rebooked' ? L.rebooked : dlg.tab === 'arrived' ? L.arrived : L.all;
+    const rows = dlg.tab === 'today' ? L.today : dlg.tab === 'nostatus' ? L.nostatus : dlg.tab === 'rebooked' ? L.rebooked : dlg.tab === 'arrived' ? L.arrived : dlg.tab === 'cancelled' ? L.cancelled : L.all;
     box.textContent = '';
     const scopeKey = hotelKey + '|' + dlg.tab + '|' + L.T; if (dlg.foldKey !== scopeKey) { dlg.fold = false; dlg.foldKey = scopeKey; }
     let target = box;
@@ -985,12 +989,12 @@
       const nm = document.createElement('span'); nm.className = 'nm' + (open ? '' : ' masked'); nm.textContent = open ? d.n : '';
       name.appendChild(rb); name.appendChild(nm); cells.push(name);
       if (showHotel) { const c = document.createElement('td'); c.textContent = hotelsByKey[d.h] || d.h; cells.push(c); }
-      const ci = document.createElement('td'); ci.textContent = dlgDate(d.ci); if (!d.ar && d.ci && d.ci < L.T && !rebookedLater(d, L.T)) { const sp = document.createElement('span'); sp.className = 'chip crit'; sp.textContent = 'overdue ' + daysBetween(d.ci, L.T) + ' d'; ci.appendChild(document.createTextNode(' ')); ci.appendChild(sp); } cells.push(ci);
+      const ci = document.createElement('td'); ci.textContent = dlgDate(d.ci); if (!d.cx && !d.ar && d.ci && d.ci < L.T && !rebookedLater(d, L.T)) { const sp = document.createElement('span'); sp.className = 'chip crit'; sp.textContent = 'overdue ' + daysBetween(d.ci, L.T) + ' d'; ci.appendChild(document.createTextNode(' ')); ci.appendChild(sp); } cells.push(ci);
       const fl = document.createElement('td');
       if (d.fc) { const old = d.ad ? dlgDate(d.ad) + (d.at ? ' ' + d.at : '') + (d.fl ? ' · ' + d.fl : '') : 'no flight on file'; const neu = d.fc.d ? dlgDate(d.fc.d) + (d.fc.t ? ' ' + d.fc.t : '') + (d.fc.fl ? ' · ' + d.fc.fl : '') : 'new arrival unknown'; fl.textContent = neu; const s = document.createElement('div'); s.style.cssText = 'color: var(--muted); font-size: 11.5px; text-decoration: line-through;'; s.textContent = old; fl.appendChild(s); }
       else fl.textContent = d.ad ? dlgDate(d.ad) + (d.at ? ' ' + d.at : '') + (d.fl ? ' · ' + d.fl : '') + (d.ap && d.ap !== 'MNL' ? ' (' + d.ap + ')' : '') : 'no flight on file';
       cells.push(fl);
-      const st = document.createElement('td'); const sc = document.createElement('span'); sc.className = 'chip ' + (d.ar ? 'ok' : 'warn'); sc.textContent = d.ar ? 'Arrived' : 'Not marked'; st.appendChild(sc);
+      const st = document.createElement('td'); const sc = document.createElement('span'); sc.className = 'chip ' + (d.cx ? 'crit' : d.ar ? 'ok' : 'warn'); sc.textContent = d.cx ? 'Cancelled (planners\' list)' : d.ar ? 'Arrived' : 'Not marked'; st.appendChild(sc);
       if (d.fc) {
         const rb = document.createElement('button'); rb.type = 'button'; rb.className = 'chip rmk rebook';
         const why = d.fc.unk && !d.fc.d ? 'Rebooked · new arrival unknown' : d.fc.d > L.T ? 'Rebooked · arrives ' + shortDate(d.fc.d) : d.fc.d === L.T ? 'Rebooked · due today' : d.ar ? 'Rebooked' : 'Rebooked · landed ' + shortDate(d.fc.d) + ', not marked';
@@ -999,7 +1003,7 @@
         remarkTip(rb, detail); st.appendChild(document.createTextNode(' ')); st.appendChild(rb);
       }
       cells.push(st);
-      const kit = document.createElement('td'); const kc = document.createElement('span'); kc.className = 'chip ' + (d.wk ? 'ok' : d.ar ? 'warn' : ''); kc.textContent = d.wk ? 'Given' : d.ar ? 'Not yet' : '–'; kit.appendChild(kc); cells.push(kit);
+      const kit = document.createElement('td'); const kc = document.createElement('span'); kc.className = 'chip ' + (d.wk ? 'ok' : d.ar ? 'warn' : ''); kc.textContent = d.cx ? '–' : d.wk ? 'Given' : d.ar ? 'Not yet' : '–'; kit.appendChild(kc); cells.push(kit);
       const rm = document.createElement('td'); rm.className = 'remark'; if (d.rm) { if (open) rm.textContent = d.rm; else { const c = document.createElement('button'); c.type = 'button'; c.className = 'chip rmk'; c.textContent = 'has a remark'; c.setAttribute('aria-expanded', 'false'); c.setAttribute('aria-label', 'Show the HID remark'); remarkTip(c, d.rm); rm.appendChild(c); } } cells.push(rm);
       const fg = document.createElement('td'); [[d.sf, 'SFTS'], [d.sr, d.sr ? (open ? d.sr : 'Special rooming') : null], [d.mi, 'Minor'], [d.gc, 'Group contact']].forEach(([on, label]) => { if (on && label) { const c = document.createElement('span'); c.className = 'chip'; c.textContent = label; fg.appendChild(c); } }); cells.push(fg);
       cells.forEach(c => tr.appendChild(c)); tb.appendChild(tr);

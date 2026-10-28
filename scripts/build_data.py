@@ -531,7 +531,25 @@ def read_flight_changes(path):
     return out
 
 
-def delegate_rows(rows, hotel_key, changes=None):
+def read_cancellations(path):
+    """Planners' cancellation list: delegate code -> True. Any sheet with a 'Delegate Code' column."""
+    wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
+    out = set()
+    for ws in wb.worksheets:
+        rows = list(ws.iter_rows(values_only=True))
+        hi = next((i for i, r in enumerate(rows[:10]) if r and "Delegate Code" in r), None)
+        if hi is None:
+            continue
+        ci = list(rows[hi]).index("Delegate Code")
+        for r in rows[hi + 1:]:
+            if r and ci < len(r) and _is_delegate_code(r[ci]):
+                out.add(str(r[ci]).strip())
+    if not out:
+        raise ValueError(f"{os.path.basename(path)}: no delegate codes found")
+    return out
+
+
+def delegate_rows(rows, hotel_key, changes=None, cancelled_rows=()):
     """Per-delegate rows for the names layer of the dashboard (encrypted payload only)."""
     out = []
     for r in rows:
@@ -554,6 +572,11 @@ def delegate_rows(rows, hotel_key, changes=None):
             "br": _cell_text(r.get("Branch")) or None, "lg": _cell_text(r.get("Primary Language")) or None,
             **({"fc": fc} if fc else {}),
         })
+    for r in cancelled_rows:
+        out.append({"n": _cell_text(r.get("Name (Last, First)")) or "(no name)", "h": hotel_key, "ci": iso(as_date(r.get("Check-in"))),
+                    "co": iso(as_date(r.get("Check-out"))), "ad": iso(as_date(r.get("Arrival Date"))), "at": None, "fl": None, "ap": None,
+                    "ar": False, "wk": False, "rm": None, "sr": None, "sf": yes(r.get("SFTS")), "mi": yes(r.get("Minor")), "gc": yes(r.get("Group Contact")),
+                    "br": _cell_text(r.get("Branch")) or None, "lg": None, "cx": True})
     return out
 
 
@@ -577,6 +600,8 @@ def main():
                     help="password that protects the published dashboard (or set DASHBOARD_PASSWORD)")
     ap.add_argument("--changes", default=None,
                     help="planners' 'Change of flights' workbook; marks rebooked delegates with their new arrival")
+    ap.add_argument("--cancelled", default=None,
+                    help="planners' cancellation workbook (a 'Delegate Code' column); those delegates are excluded from every count")
     ap.add_argument("--allow-older", action="store_true",
                     help="replace the published data even if the new files look older than it")
     ap.add_argument("--plain", action="store_true",
@@ -596,6 +621,11 @@ def main():
     generated, sources = set(), set()
     seen = {}
     delegates = []
+    cancelled_codes = set()
+    if args.cancelled:
+        cancelled_codes = read_cancellations(args.cancelled)
+        print(f"  cancellations: {len(cancelled_codes)} delegate codes in {os.path.basename(args.cancelled)}", file=sys.stderr)
+    cancelled_by_list_total = 0
     changes = {}
     if args.changes:
         changes = read_flight_changes(args.changes)
@@ -617,12 +647,21 @@ def main():
             delegates = [d for d in delegates if d["h"] != slug(prev["hotel"])]
             total_cancelled -= prev["cancelled"]
         seen[key] = wb
+        listed = [r for r in wb["rows"] if _cell_text(r.get("Delegate Code")) in cancelled_codes]
+        if listed:
+            wb["rows"] = [r for r in wb["rows"] if _cell_text(r.get("Delegate Code")) not in cancelled_codes]
+            wb["cancelled"] += len(listed)
+            wb["cancelledByList"] = len(listed)
+            cancelled_by_list_total += len(listed)
+            print(f"  note: {wb['file']}: {len(listed)} delegate(s) excluded from the planners' cancellation list", file=sys.stderr)
+        wb["listed"] = listed
         for r in wb["rows"]:
             r["_hotel"] = key
         print(f"  {wb['hotel']:<34} delegates={len(wb['rows']):>4}  cancelled={wb['cancelled']}", file=sys.stderr)
         agg = aggregate(wb["rows"], wb["cancelled"], changes)
+        agg["cancelledByList"] = wb.get("cancelledByList", 0)
         hotels.append({"key": slug(wb["hotel"]), "name": wb["hotel"], "savedAt": wb["savedAt"], **agg})
-        delegates.extend(delegate_rows(wb["rows"], slug(wb["hotel"]), changes))
+        delegates.extend(delegate_rows(wb["rows"], slug(wb["hotel"]), changes, wb.get("listed", [])))
         all_rows.extend(wb["rows"])
         total_cancelled += wb["cancelled"]
         if wb["generated"]:
@@ -632,6 +671,7 @@ def main():
 
     hotels.sort(key=lambda h: -h["delegates"])
     overall = aggregate(all_rows, total_cancelled, changes)
+    overall["cancelledByList"] = cancelled_by_list_total
     if changes:
         known = {_cell_text(r.get("Delegate Code")) for r in all_rows}
         unmatched = [c for c in changes if c not in known]
@@ -644,6 +684,7 @@ def main():
         "builtAt": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "hotelCount": len(hotels),
         "flightChanges": ({"file": os.path.basename(args.changes), "savedAt": file_saved_at(args.changes), "count": len(changes)} if args.changes else None),
+        "cancellations": ({"file": os.path.basename(args.cancelled), "savedAt": file_saved_at(args.cancelled), "count": len(cancelled_codes), "inLists": cancelled_by_list_total} if args.cancelled else None),
         "overall": overall,
         "hotels": hotels,
         "delegates": sorted(delegates, key=lambda d: (d["h"], d["ci"] or "", d["n"].lower())),

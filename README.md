@@ -64,6 +64,13 @@ Once GitHub Pages is enabled (see below) the dashboard is served at
    python3 scripts/build_data.py input/ --changes input/Changed_Flights.xlsx --password '...'
    ```
 
+   A planners' cancellation list (any workbook with a `Delegate Code` column) excludes
+   those delegates from every count and lists them under a Cancelled tab:
+
+   ```bash
+   python3 scripts/build_data.py input/ --cancelled input/CANCELLED.xlsx --password '...'
+   ```
+
 3. Commit and push `data/summary.enc.js`. The Pages workflow redeploys the site
    automatically.
 
