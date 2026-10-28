@@ -71,6 +71,13 @@ Once GitHub Pages is enabled (see below) the dashboard is served at
    python3 scripts/build_data.py input/ --cancelled input/CANCELLED.xlsx --password '...'
    ```
 
+   The registration export (`Delegates-YYYY-MM-DD.csv`) can be passed as the registered
+   base; the page then reconciles it with the hotel lists and every cancellation on record:
+
+   ```bash
+   python3 scripts/build_data.py input/ --registry input/Delegates-2026-10-24.csv --cancelled input/CANCELLED.xlsx --password '...'
+   ```
+
 3. Commit and push `data/summary.enc.js`. The Pages workflow redeploys the site
    automatically.
 

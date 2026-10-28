@@ -326,6 +326,11 @@
       <div class="body" id="viz-hotels"></div>
     </section>
 
+    <section class="card" id="card-recon">
+      <div class="head"><div><h2>Registrations &amp; cancellations</h2><div class="sub" id="reconSub">Registration export reconciled with the hotel lists and every cancellation on record.</div></div></div>
+      <div class="body" id="viz-recon"></div>
+    </section>
+
     <section class="card half" id="card-checkins">
       <div class="head"><div><h2>Check-ins per day</h2><div class="sub">Expected check-ins by hotel check-in date, with arrivals recorded so far.</div></div><div class="seg" data-toggle="checkins"><button type="button" aria-pressed="true">Chart</button><button type="button" aria-pressed="false">Table</button></div></div>
       <div class="body" id="viz-checkins"></div>
@@ -889,7 +894,8 @@
       ['Arriving via Clark (CRK) instead of Manila', (c.airports.find(a => a[0] === 'CRK') || [0, 0])[1], 'info'],
       ['Arrival airport not set', (c.airports.find(a => a[0] === 'Not set') || [0, 0])[1], 'info'],
       ['Cancelled by the hotel list (excluded)', c.cancelled - (c.cancelledByList || 0), 'info'],
-      ['Cancelled by the planners\' list' + (D.cancellations ? ' (' + fmt(D.cancellations.count) + ' on the list, ' + fmt(D.cancellations.inLists) + ' still in hotel lists)' : ''), c.cancelledByList || 0, 'info'],
+      ['Cancelled by the planners\' list while still in a hotel list (excluded)', c.cancelledByList || 0, 'info'],
+      ['All cancellations on record (planners\' list + hotel lists)', c.cancelTotal || 0, 'info'],
       ['Flight changes on file' + (D.flightChanges ? ' (' + D.flightChanges.file.replace(/\.xlsx$/i, '') + ')' : ''), c.flightChanges || 0, 'info'],
       ['Flight changed and not yet marked arrived', c.flightChangesNotArrived || 0, (c.flightChangesNotArrived ? 'warn' : 'good')]
     ];
@@ -948,7 +954,7 @@
     [['Check-ins due ' + longDate(L.T), L.strip.expected], ['of which marked arrived', L.strip.arrivedT], ['still pending', L.strip.pendingT], ['overdue from earlier days, no status', L.strip.overdue], ['rebooked to a later flight, not yet in hotel', L.strip.overdueRebooked]].forEach(([k, v]) => { const sp = document.createElement('span'); sp.appendChild(document.createTextNode(k + ' ')); const b = document.createElement('b'); b.textContent = fmt(v); sp.appendChild(b); strip.appendChild(sp); });
     if (L.strip.searching) { const sp = document.createElement('span'); sp.appendChild(document.createTextNode('search matches ')); const b = document.createElement('b'); b.textContent = fmt(L.strip.hits); sp.appendChild(b); strip.appendChild(sp); }
     const tabs = $('#dlgTabs'); tabs.textContent = '';
-    [['today', 'Arriving ' + (L.T === manilaToday() ? 'today' : shortDate(L.T)), L.today.length, ''], ['nostatus', 'Expected, no status', L.nostatus.length, L.nostatus.length ? 'crit' : ''], ['rebooked', 'Flight changed', L.rebooked.length, ''], ['arrived', 'Arrived', L.arrived.length, ''], ['all', 'All', L.all.length, ''], ['cancelled', 'Cancelled (list)', L.cancelled.length, '']].forEach(([key, label, n, cls]) => {
+    [['today', 'Arriving ' + (L.T === manilaToday() ? 'today' : shortDate(L.T)), L.today.length, ''], ['nostatus', 'Expected, no status', L.nostatus.length, L.nostatus.length ? 'crit' : ''], ['rebooked', 'Flight changed', L.rebooked.length, ''], ['arrived', 'Arrived', L.arrived.length, ''], ['all', 'All', L.all.length, ''], ['cancelled', 'Cancelled', L.cancelled.length, '']].forEach(([key, label, n, cls]) => {
       const b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', String(dlg.tab === key)); b.className = cls;
       b.appendChild(document.createTextNode(label)); const nn = document.createElement('span'); nn.className = 'n'; nn.textContent = fmt(n); b.appendChild(nn);
       b.addEventListener('click', () => { dlg.tab = key; dlg.shown = 150; renderDelegates(); }); tabs.appendChild(b);
@@ -991,10 +997,14 @@
       if (showHotel) { const c = document.createElement('td'); c.textContent = hotelsByKey[d.h] || d.h; cells.push(c); }
       const ci = document.createElement('td'); ci.textContent = dlgDate(d.ci); if (!d.cx && !d.ar && d.ci && d.ci < L.T && !rebookedLater(d, L.T)) { const sp = document.createElement('span'); sp.className = 'chip crit'; sp.textContent = 'overdue ' + daysBetween(d.ci, L.T) + ' d'; ci.appendChild(document.createTextNode(' ')); ci.appendChild(sp); } cells.push(ci);
       const fl = document.createElement('td');
-      if (d.fc) { const old = d.ad ? dlgDate(d.ad) + (d.at ? ' ' + d.at : '') + (d.fl ? ' · ' + d.fl : '') : 'no flight on file'; const neu = d.fc.d ? dlgDate(d.fc.d) + (d.fc.t ? ' ' + d.fc.t : '') + (d.fc.fl ? ' · ' + d.fc.fl : '') : 'new arrival unknown'; fl.textContent = neu; const s = document.createElement('div'); s.style.cssText = 'color: var(--muted); font-size: 11.5px; text-decoration: line-through;'; s.textContent = old; fl.appendChild(s); }
+      if (d.cx) { fl.textContent = '–'; }
+      else if (d.fc) { const old = d.ad ? dlgDate(d.ad) + (d.at ? ' ' + d.at : '') + (d.fl ? ' · ' + d.fl : '') : 'no flight on file'; const neu = d.fc.d ? dlgDate(d.fc.d) + (d.fc.t ? ' ' + d.fc.t : '') + (d.fc.fl ? ' · ' + d.fc.fl : '') : 'new arrival unknown'; fl.textContent = neu; const s = document.createElement('div'); s.style.cssText = 'color: var(--muted); font-size: 11.5px; text-decoration: line-through;'; s.textContent = old; fl.appendChild(s); }
       else fl.textContent = d.ad ? dlgDate(d.ad) + (d.at ? ' ' + d.at : '') + (d.fl ? ' · ' + d.fl : '') + (d.ap && d.ap !== 'MNL' ? ' (' + d.ap + ')' : '') : 'no flight on file';
       cells.push(fl);
-      const st = document.createElement('td'); const sc = document.createElement('span'); sc.className = 'chip ' + (d.cx ? 'crit' : d.ar ? 'ok' : 'warn'); sc.textContent = d.cx ? 'Cancelled (planners\' list)' : d.ar ? 'Arrived' : 'Not marked'; st.appendChild(sc);
+      const st = document.createElement('td'); const sc = document.createElement('span'); sc.className = 'chip ' + (d.cx ? 'crit' : d.ar ? 'ok' : 'warn');
+      sc.textContent = d.cx ? 'Cancelled · ' + (d.cs === 'both' ? 'list + hotel' : d.cs === 'hotel' ? 'hotel list' : 'planners\' list') : d.ar ? 'Arrived' : 'Not marked'; st.appendChild(sc);
+      if (d.cx && d.cst && d.cst.toLowerCase() !== 'cancelled') { const c = document.createElement('button'); c.type = 'button'; c.className = 'chip rmk'; c.textContent = 'hotel note'; remarkTip(c, d.cst); st.appendChild(document.createTextNode(' ')); st.appendChild(c); }
+      if (d.cx && d.creg === false) { const c = document.createElement('span'); c.className = 'chip'; c.textContent = 'before export'; c.title = 'Not in the registration export'; st.appendChild(document.createTextNode(' ')); st.appendChild(c); }
       if (d.fc) {
         const rb = document.createElement('button'); rb.type = 'button'; rb.className = 'chip rmk rebook';
         const why = d.fc.unk && !d.fc.d ? 'Rebooked · new arrival unknown' : d.fc.d > L.T ? 'Rebooked · arrives ' + shortDate(d.fc.d) : d.fc.d === L.T ? 'Rebooked · due today' : d.ar ? 'Rebooked' : 'Rebooked · landed ' + shortDate(d.fc.d) + ', not marked';
@@ -1035,7 +1045,31 @@
     btn.addEventListener('click', () => { dlg.reveal = !dlg.reveal; if (!dlg.reveal) dlg.open.clear(); btn.setAttribute('aria-pressed', String(dlg.reveal)); btn.textContent = dlg.reveal ? 'Hide names' : 'Show all names'; renderDelegates(); });
   }
 
-  const R = { delegates: renderDelegates, hotels: renderHotels, checkins: renderCheckins, checkouts: renderCheckouts, inhouse: renderInhouse, arrivals: renderArrivals, departures: renderDepartures, gap: renderGap, watch: renderWatch, branches: () => renderTop('branches', 'branches'), languages: () => renderTop('languages', 'languages'), airlines: () => renderTop('airlines', 'airlines') };
+  function renderRecon() {
+    const card = $('#card-recon'); const box = $('#viz-recon'); box.textContent = '';
+    if (!D.registry && !D.cancelSummary) { card.hidden = true; return; }
+    const G = D.registry, C = D.cancelSummary || { total: 0 };
+    const sub = $('#reconSub'); sub.textContent = G ? 'Registration export of ' + (G.date ? longDate(G.date) : G.file) + ' (' + fmt(G.count) + ' confirmed) reconciled with the latest hotel lists and every cancellation on record.' : 'Every cancellation on record, from the planners\' list and the hotel lists.';
+    const strip = document.createElement('div'); strip.className = 'dlg-strip';
+    const add = (k, v) => { const sp = document.createElement('span'); sp.appendChild(document.createTextNode(k + ' ')); const b = document.createElement('b'); b.textContent = fmt(v); sp.appendChild(b); strip.appendChild(sp); };
+    if (G) { add('Registered', G.count); add('of which cancelled since', G.cancelled); add('in the hotel lists', G.inHotelLists); add('in no hotel list, not cancelled', G.missing); }
+    add('Cancellations on record', C.total); if (G) add('cancelled before the export', G.cancelledBeforeExport);
+    add('on both lists', C.both); add('planners\' list only', C.listOnly); add('hotel list only', C.hotelOnly);
+    box.appendChild(strip);
+    const head = [{ label: 'Hotel' }].concat(G ? [{ label: 'Registered', num: true }, { label: 'Cancelled since', num: true }, { label: 'Not in hotel list', num: true }] : [], [{ label: 'Expected (hotel list)', num: true }, { label: 'All cancellations', num: true }]);
+    const list = hotelKey === 'all' ? D.hotels : D.hotels.filter(h => h.key === hotelKey);
+    const rows = list.map(h => [h.name].concat(G ? [h.registered || 0, h.regCancelled || 0, (h.regMissing || 0)] : [], [h.delegates, h.cancelTotal || 0]));
+    const o = D.overall; const foot = hotelKey === 'all' ? ['All hotels'].concat(G ? [G.count, G.cancelled, G.missing] : [], [o.delegates, C.total]) : null;
+    const tb = document.createElement('div'); box.appendChild(tb); table(tb, head, rows, foot);
+    const notes = [];
+    if (G && G.noHotel) notes.push(fmt(G.noHotel) + ' registered delegate' + (G.noHotel === 1 ? ' has' : 's have') + ' no hotel in the export' + (G.noHotelCancelled ? ' (' + fmt(G.noHotelCancelled) + ' cancelled)' : '') + ', so the hotel rows add up to ' + fmt(G.count - G.noHotel) + '.');
+    if (G && G.blankCodes) notes.push(fmt(G.blankCodes) + ' delegate row' + (G.blankCodes === 1 ? '' : 's') + ' in the hotel lists ha' + (G.blankCodes === 1 ? 's' : 've') + ' a blank delegate code and ' + (G.blankCodes === 1 ? 'is' : 'are') + ' matched to the registered delegate missing at the same hotel.');
+    if (G && G.notRegistered) notes.push(fmt(G.notRegistered) + ' delegate' + (G.notRegistered === 1 ? ' is' : 's are') + ' in a hotel list but not in the registration export.');
+    notes.push('Cancelled delegates are excluded from every other figure and listed under the Cancelled tab in the Delegates section.');
+    const p = document.createElement('p'); p.className = 'dlg-note'; p.textContent = notes.join(' '); box.appendChild(p);
+  }
+
+  const R = { recon: renderRecon, delegates: renderDelegates, hotels: renderHotels, checkins: renderCheckins, checkouts: renderCheckouts, inhouse: renderInhouse, arrivals: renderArrivals, departures: renderDepartures, gap: renderGap, watch: renderWatch, branches: () => renderTop('branches', 'branches'), languages: () => renderTop('languages', 'languages'), airlines: () => renderTop('airlines', 'airlines') };
   function renderOne(k) { R[k](); }
   function renderAll() { renderUpdated(); renderScope(); renderKpis(); Object.keys(R).forEach(renderOne); }
   setInterval(() => { if (D) renderUpdated(); }, 60000);

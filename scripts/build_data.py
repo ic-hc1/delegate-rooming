@@ -228,6 +228,7 @@ def read_workbook(path):
     # cancelled ones (grey rows at the bottom). Anything else (moved title/header rows, typed-over
     # cells, totals) is a stray and is ignored. The "No." column is not trusted: hotels type over it.
     active, cancelled, strays, renumbered, recovered = [], 0, 0, 0, 0
+    cancelled_rows = []
     for r in rows[first_data_idx:]:
         if r is None or all(c is None for c in r):
             continue
@@ -244,6 +245,7 @@ def read_workbook(path):
         status = _cell_text(rec.get("Status")).lower()
         if status.startswith("cancel"):
             cancelled += 1
+            cancelled_rows.append(rec)
             continue
         no = rec.get("No.")
         if no is None and rec.get("Name (Last, First)") is None:
@@ -261,7 +263,7 @@ def read_workbook(path):
     for n in notes:
         print(f"  note: {fname}: {n}", file=sys.stderr)
     return {"hotel": hotel, "source": source, "generated": generated, "savedAt": file_saved_at(path),
-            "rows": active, "cancelled": cancelled, "file": fname}
+            "rows": active, "cancelled": cancelled, "cancelledRows": cancelled_rows, "file": fname}
 
 
 def band_index(t):
@@ -533,19 +535,50 @@ def read_flight_changes(path):
     return out
 
 
+def read_registry(path):
+    """Registration export (Delegates-YYYY-MM-DD.csv): delegate code -> {hotel text, check-in}. No names."""
+    import csv as _csv
+    out = {}
+    with open(path, encoding="utf-8-sig", newline="") as fh:
+        for r in _csv.DictReader(fh):
+            code = (r.get("Delegate Code") or "").strip()
+            if _is_delegate_code(code):
+                out[code] = {"acc": (r.get("Accommodations") or "").strip(), "ci": (r.get("Check-in") or "").strip() or None,
+                             "status": (r.get("Status") or "").strip()}
+    if not out:
+        raise ValueError(f"{os.path.basename(path)}: no delegate codes found")
+    return out
+
+
+def hotel_key_for(text, hotels):
+    """Map free hotel text ('Kingsford Hotel | IC2026SFTS-016', 'HiEx', 'Okada Manila') to a hotel key."""
+    t = re.sub(r"[^a-z]", "", (text or "").split("|")[0].lower())
+    if not t:
+        return None
+    alias = {"hiex": "holiday", "kfh": "kingsford", "gws": "grandwest", "manilahotel": "themanilahotel"}
+    t = alias.get(t, t)
+    for h in hotels:
+        n = re.sub(r"[^a-z]", "", h["name"].lower())
+        if n.startswith(t) or t.startswith(n[:8]) or (len(t) >= 5 and t in n):
+            return h["key"]
+    return None
+
+
 def read_cancellations(path):
     """Planners' cancellation list: delegate code -> True. Any sheet with a 'Delegate Code' column."""
     wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
-    out = set()
+    out = {}
     for ws in wb.worksheets:
         rows = list(ws.iter_rows(values_only=True))
         hi = next((i for i, r in enumerate(rows[:10]) if r and "Delegate Code" in r), None)
         if hi is None:
             continue
-        ci = list(rows[hi]).index("Delegate Code")
+        hdr = list(rows[hi]); ci = hdr.index("Delegate Code")
+        ni = hdr.index("Name") if "Name" in hdr else None
+        hi_ = hdr.index("Hotel") if "Hotel" in hdr else None
         for r in rows[hi + 1:]:
             if r and ci < len(r) and _is_delegate_code(r[ci]):
-                out.add(str(r[ci]).strip())
+                out[str(r[ci]).strip()] = {"name": _cell_text(r[ni]) if ni is not None else "", "hotel": _cell_text(r[hi_]) if hi_ is not None else ""}
     if not out:
         raise ValueError(f"{os.path.basename(path)}: no delegate codes found")
     return out
@@ -604,6 +637,8 @@ def main():
                     help="planners' 'Change of flights' workbook; marks rebooked delegates with their new arrival")
     ap.add_argument("--cancelled", default=None,
                     help="planners' cancellation workbook (a 'Delegate Code' column); those delegates are excluded from every count")
+    ap.add_argument("--registry", default=None,
+                    help="registration export CSV (Delegates-YYYY-MM-DD.csv) used as the registered base for reconciliation")
     ap.add_argument("--allow-older", action="store_true",
                     help="replace the published data even if the new files look older than it")
     ap.add_argument("--plain", action="store_true",
@@ -622,6 +657,7 @@ def main():
     hotels, all_rows, total_cancelled = [], [], 0
     generated, sources = set(), set()
     seen = {}
+    kept = {}
     delegates = []
     cancelled_codes = set()
     if args.cancelled:
@@ -644,6 +680,7 @@ def main():
                   f"{'newer' if newer else 'earlier'} file {wb['file'] if newer else prev['file']}", file=sys.stderr)
             if not newer:
                 continue
+            kept.pop(key, None)
             hotels = [h for h in hotels if h["name"].lower() != key]
             all_rows = [r for r in all_rows if r.get("_hotel") != key]
             delegates = [d for d in delegates if d["h"] != slug(prev["hotel"])]
@@ -663,7 +700,8 @@ def main():
         agg = aggregate(wb["rows"], wb["cancelled"], changes)
         agg["cancelledByList"] = wb.get("cancelledByList", 0)
         hotels.append({"key": slug(wb["hotel"]), "name": wb["hotel"], "savedAt": wb["savedAt"], **agg})
-        delegates.extend(delegate_rows(wb["rows"], slug(wb["hotel"]), changes, wb.get("listed", [])))
+        delegates.extend(delegate_rows(wb["rows"], slug(wb["hotel"]), changes))
+        kept[key] = wb
         all_rows.extend(wb["rows"])
         total_cancelled += wb["cancelled"]
         if wb["generated"]:
@@ -674,6 +712,82 @@ def main():
     hotels.sort(key=lambda h: -h["delegates"])
     overall = aggregate(all_rows, total_cancelled, changes)
     overall["cancelledByList"] = cancelled_by_list_total
+
+    # ---- one combined cancellation record: planners' list + hotel Status column ----
+    import collections
+    slug_by_lc = {h["name"].lower(): h["key"] for h in hotels}
+    by_key = {h["key"]: h for h in hotels}
+    active_codes = {_cell_text(r.get("Delegate Code")): r.get("_hotel") for r in all_rows}
+    cx = {}
+    for key_lc, wbk in kept.items():
+        hk = slug(wbk["hotel"])
+        for r in wbk.get("cancelledRows", []):
+            c = _cell_text(r.get("Delegate Code"))
+            if c and c not in active_codes:
+                cx[c] = {"n": _cell_text(r.get("Name (Last, First)")) or "(no name)", "h": hk, "ci": iso(as_date(r.get("Check-in"))),
+                         "st": _cell_text(r.get("Status")) or None, "hotelMarked": True}
+        for r in wbk.get("listed", []):
+            c = _cell_text(r.get("Delegate Code"))
+            cx[c] = {"n": _cell_text(r.get("Name (Last, First)")) or "(no name)", "h": hk, "ci": iso(as_date(r.get("Check-in"))),
+                     "st": _cell_text(r.get("Status")) or None, "hotelMarked": False, "wasActive": True}
+    for c, info in cancelled_codes.items():
+        if c in cx:
+            cx[c]["onList"] = True
+        else:
+            cx[c] = {"n": info.get("name") or "(no name)", "h": hotel_key_for(info.get("hotel"), hotels), "ci": None,
+                     "st": None, "hotelMarked": False, "onList": True}
+    registry = read_registry(args.registry) if args.registry else None
+    for c, v in cx.items():
+        v["src"] = "both" if v.get("onList") and v.get("hotelMarked") else ("list" if v.get("onList") else "hotel")
+        v["reg"] = (c in registry) if registry else None
+        delegates.append({"n": v["n"], "h": v["h"] or "unknown", "ci": v["ci"], "co": None, "ad": None, "at": None, "fl": None, "ap": None,
+                          "ar": False, "wk": False, "rm": None, "sr": None, "sf": False, "mi": False, "gc": False, "br": None, "lg": None,
+                          "cx": True, "cs": v["src"], "cst": v["st"], "creg": v["reg"]})
+    for h in hotels:
+        mine = [v for v in cx.values() if v["h"] == h["key"]]
+        h["cancelTotal"] = len(mine)
+    overall["cancelTotal"] = len(cx)
+    cx_summary = {"total": len(cx), "both": sum(1 for v in cx.values() if v["src"] == "both"),
+                  "listOnly": sum(1 for v in cx.values() if v["src"] == "list"), "hotelOnly": sum(1 for v in cx.values() if v["src"] == "hotel"),
+                  "excludedFromHotelLists": cancelled_by_list_total}
+    reg_meta = None
+    if registry:
+        m_ = re.search(r"(\d{4}-\d{2}-\d{2})", os.path.basename(args.registry))
+        reg_codes = set(registry)
+        reg_key = {c: hotel_key_for(v["acc"], hotels) for c, v in registry.items()}
+        missing = [c for c in reg_codes if c not in active_codes and c not in cx]
+        extra = [c for c in active_codes if c and c not in reg_codes]
+        blanks = collections.Counter(slug_by_lc.get(hl) for c, hl in active_codes.items() if not c)
+        blank_rows = collections.Counter()
+        for r in all_rows:
+            if not _cell_text(r.get("Delegate Code")):
+                blank_rows[slug_by_lc.get(r.get("_hotel"))] += 1
+        paired_total = 0
+        for h in hotels:
+            k = h["key"]
+            h["registered"] = sum(1 for c in reg_codes if reg_key[c] == k)
+            h["regCancelled"] = sum(1 for c in reg_codes if reg_key[c] == k and c in cx)
+            miss_here = sum(1 for c in missing if reg_key[c] == k)
+            paired = min(blank_rows[k], miss_here)
+            paired_total += paired
+            h["regMissing"] = miss_here - paired
+            h["blankCode"] = blank_rows[k]
+            h["notRegistered"] = sum(1 for c in extra if active_codes[c] == h["name"].lower()) + (blank_rows[k] - paired)
+        no_hotel = [c for c in reg_codes if reg_key[c] is None]
+        reg_meta = {"file": os.path.basename(args.registry), "date": m_.group(1) if m_ else None, "count": len(registry),
+                    "cancelled": sum(1 for c in cx if c in reg_codes), "inHotelLists": len(reg_codes & set(active_codes)),
+                    "missing": len(missing) - paired_total, "notRegistered": len(extra) + sum(blank_rows.values()) - paired_total,
+                    "blankCodes": sum(blank_rows.values()), "noHotel": len(no_hotel), "noHotelCancelled": sum(1 for c in no_hotel if c in cx),
+                    "cancelledBeforeExport": sum(1 for c in cx if c not in reg_codes)}
+        overall["registered"] = len(registry)
+        print(f"  registry: {len(registry)} registered; {reg_meta['inHotelLists']} active in hotel lists; {reg_meta['cancelled']} cancelled; "
+              f"{len(missing)} missing from hotel lists; {len(extra)} in hotel lists but not registered", file=sys.stderr)
+        if missing:
+            print("  registered but in no hotel list and not cancelled: " + ", ".join(f"{c} ({registry[c]['acc']}, check-in {registry[c]['ci']})" for c in sorted(missing)), file=sys.stderr)
+        if sum(blank_rows.values()):
+            print(f"  active hotel rows with a blank delegate code: {dict(blank_rows)} (paired with {paired_total} registered-but-missing at the same hotel)", file=sys.stderr)
+        if extra:
+            print("  in hotel lists but not in the registration export: " + ", ".join(f"{c} ({active_codes[c]})" for c in sorted(extra)), file=sys.stderr)
     if changes:
         known = {_cell_text(r.get("Delegate Code")) for r in all_rows}
         unmatched = [c for c in changes if c not in known]
@@ -687,6 +801,8 @@ def main():
         "hotelCount": len(hotels),
         "flightChanges": ({"file": os.path.basename(args.changes), "savedAt": file_saved_at(args.changes), "count": len(changes)} if args.changes else None),
         "cancellations": ({"file": os.path.basename(args.cancelled), "savedAt": file_saved_at(args.cancelled), "count": len(cancelled_codes), "inLists": cancelled_by_list_total} if args.cancelled else None),
+        "cancelSummary": cx_summary,
+        "registry": reg_meta,
         "overall": overall,
         "hotels": hotels,
         "delegates": sorted(delegates, key=lambda d: (d["h"], d["ci"] or "", d["n"].lower())),
