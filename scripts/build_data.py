@@ -201,9 +201,11 @@ def read_workbook(path):
         for i, h in enumerate(header):
             if h in STANDARD_HEADER:
                 k = STANDARD_HEADER.index(h) + 1
-            elif not h and k < len(STANDARD_HEADER) and STANDARD_HEADER[k] not in header:
+            elif k < len(STANDARD_HEADER) and STANDARD_HEADER[k] not in header and (
+                    not h or STANDARD_HEADER[k + 1] in header[i + 1:i + 2] if k + 1 < len(STANDARD_HEADER) else not h):
+                # blank, or typed-over text sitting exactly where the next standard label belongs
+                filled.append(STANDARD_HEADER[k] + ("" if not h else f" (was {h!r})"))
                 header[i] = STANDARD_HEADER[k]
-                filled.append(STANDARD_HEADER[k])
                 k += 1
             elif not h and k < len(STANDARD_HEADER):
                 inserted.append(i)
