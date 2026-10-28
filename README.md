@@ -78,6 +78,10 @@ Once GitHub Pages is enabled (see below) the dashboard is served at
    python3 scripts/build_data.py input/ --registry input/Delegates-2026-10-24.csv --cancelled input/CANCELLED.xlsx --password '...'
    ```
 
+   Delegates confirmed as attending although a list marks them cancelled go in a small
+   text file kept outside the repository (one delegate code per line, `arrived` to count
+   them as in-house), passed with `--reinstate reinstate.txt`.
+
 3. Commit and push `data/summary.enc.js`. The Pages workflow redeploys the site
    automatically.
 

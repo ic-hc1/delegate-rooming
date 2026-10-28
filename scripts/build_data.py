@@ -92,6 +92,23 @@ def slug(name):
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
 
 
+REINSTATE = {}   # delegate code -> {"arrived": bool}; filled from --reinstate
+
+
+def read_reinstate(path):
+    out = {}
+    for line in open(path, encoding="utf-8"):
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        parts = line.split()
+        code = re.sub(r"[^A-Z0-9]", "", parts[0].upper())[-11:]
+        if not re.fullmatch(r"[A-Z0-9]{11}", code):
+            raise ValueError(f"{os.path.basename(path)}: not a delegate code: {parts[0]!r}")
+        out[code] = {"arrived": any(p.lower() == "arrived" for p in parts[1:])}
+    return out
+
+
 HOTEL_BY_FILE_TOKEN = {
     "CITADINES": "Citadines Bay City Manila",
     "CONRAD": "Conrad Manila",
@@ -228,7 +245,7 @@ def read_workbook(path):
     # cancelled ones (grey rows at the bottom). Anything else (moved title/header rows, typed-over
     # cells, totals) is a stray and is ignored. The "No." column is not trusted: hotels type over it.
     active, cancelled, strays, renumbered, recovered = [], 0, 0, 0, 0
-    cancelled_rows = []
+    cancelled_rows, contradictions = [], []
     for r in rows[first_data_idx:]:
         if r is None or all(c is None for c in r):
             continue
@@ -243,7 +260,15 @@ def read_workbook(path):
                 strays += 1
                 continue
         status = _cell_text(rec.get("Status")).lower()
-        if status.startswith("cancel"):
+        code_here = _cell_text(rec.get("Delegate Code"))
+        if status.startswith("cancel") and code_here in REINSTATE:
+            rec["_reinstated"] = _cell_text(rec.get("Status"))
+            if REINSTATE[code_here]["arrived"]:
+                rec["Arrived"] = "Yes"
+            notes.append(f"reinstated {code_here} (hotel status {rec['_reinstated']!r})")
+        elif status.startswith("cancel"):
+            if yes(rec.get("Arrived")) or yes(rec.get("Welcome Kit")):
+                contradictions.append(code_here)
             cancelled += 1
             cancelled_rows.append(rec)
             continue
@@ -258,6 +283,8 @@ def read_workbook(path):
         notes.append(f"{strays} stray non-delegate row(s) ignored")
     if renumbered:
         notes.append(f"{renumbered} delegate row(s) whose 'No.' cell was typed over were kept")
+    if contradictions:
+        notes.append(f"CHECK: {len(contradictions)} row(s) marked Cancelled but also Arrived or kit given: {', '.join(contradictions)}")
     if recovered:
         notes.append(f"{recovered} delegate row(s) whose delegate code was blanked were kept")
     for n in notes:
@@ -606,6 +633,7 @@ def delegate_rows(rows, hotel_key, changes=None, cancelled_rows=()):
             "sf": yes(r.get("SFTS")), "mi": yes(r.get("Minor")), "gc": yes(r.get("Group Contact")),
             "br": _cell_text(r.get("Branch")) or None, "lg": _cell_text(r.get("Primary Language")) or None,
             **({"fc": fc} if fc else {}),
+            **({"ri": r.get("_reinstated") or True} if code in REINSTATE else {}),
         })
     for r in cancelled_rows:
         out.append({"n": _cell_text(r.get("Name (Last, First)")) or "(no name)", "h": hotel_key, "ci": iso(as_date(r.get("Check-in"))),
@@ -637,6 +665,8 @@ def main():
                     help="planners' 'Change of flights' workbook; marks rebooked delegates with their new arrival")
     ap.add_argument("--cancelled", default=None,
                     help="planners' cancellation workbook (a 'Delegate Code' column); those delegates are excluded from every count")
+    ap.add_argument("--reinstate", default=None,
+                    help="text file of delegate codes to count as attending even if marked cancelled (kept outside the repo)")
     ap.add_argument("--registry", default=None,
                     help="registration export CSV (Delegates-YYYY-MM-DD.csv) used as the registered base for reconciliation")
     ap.add_argument("--allow-older", action="store_true",
@@ -660,8 +690,15 @@ def main():
     kept = {}
     delegates = []
     cancelled_codes = set()
+    if args.reinstate:
+        REINSTATE.update(read_reinstate(args.reinstate))
+        print(f"  reinstated: {len(REINSTATE)} delegate(s) from {os.path.basename(args.reinstate)}", file=sys.stderr)
     if args.cancelled:
         cancelled_codes = read_cancellations(args.cancelled)
+        for c in list(cancelled_codes):
+            if c in REINSTATE:
+                print(f"  note: {c} is on the planners' cancellation list but reinstated", file=sys.stderr)
+                cancelled_codes.pop(c)
         print(f"  cancellations: {len(cancelled_codes)} delegate codes in {os.path.basename(args.cancelled)}", file=sys.stderr)
     cancelled_by_list_total = 0
     changes = {}

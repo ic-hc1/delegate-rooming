@@ -1005,6 +1005,7 @@
       sc.textContent = d.cx ? 'Cancelled · ' + (d.cs === 'both' ? 'list + hotel' : d.cs === 'hotel' ? 'hotel list' : 'planners\' list') : d.ar ? 'Arrived' : 'Not marked'; st.appendChild(sc);
       if (d.cx && d.cst && d.cst.toLowerCase() !== 'cancelled') { const c = document.createElement('button'); c.type = 'button'; c.className = 'chip rmk'; c.textContent = 'hotel note'; remarkTip(c, d.cst); st.appendChild(document.createTextNode(' ')); st.appendChild(c); }
       if (d.cx && d.creg === false) { const c = document.createElement('span'); c.className = 'chip'; c.textContent = 'before export'; c.title = 'Not in the registration export'; st.appendChild(document.createTextNode(' ')); st.appendChild(c); }
+      if (d.ri) { const c = document.createElement('button'); c.type = 'button'; c.className = 'chip rmk'; c.textContent = 'Reinstated · showed up'; remarkTip(c, 'Marked cancelled by the hotel' + (typeof d.ri === 'string' ? ' ("' + d.ri + '")' : '') + ', but confirmed as attending by the planners. Counted as in-house.'); st.appendChild(document.createTextNode(' ')); st.appendChild(c); }
       if (d.fc) {
         const rb = document.createElement('button'); rb.type = 'button'; rb.className = 'chip rmk rebook';
         const why = d.fc.unk && !d.fc.d ? 'Rebooked · new arrival unknown' : d.fc.d > L.T ? 'Rebooked · arrives ' + shortDate(d.fc.d) : d.fc.d === L.T ? 'Rebooked · due today' : d.ar ? 'Rebooked' : 'Rebooked · landed ' + shortDate(d.fc.d) + ', not marked';
