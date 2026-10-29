@@ -773,7 +773,7 @@
 
   function renderKpis() {
     const c = current(); const k = $('#kpis'); k.textContent = '';
-    k.appendChild(tile('Delegates expected', fmt(c.delegates), fmt(c.groups) + ' groups · ' + fmt(c.groupContacts) + ' group contacts' + (c.cancelled ? ' · ' + fmt(c.cancelled) + ' cancelled excluded' : ''), null, null, null, true));
+    k.appendChild(tile('Delegates expected', fmt(c.delegates), (c.cancelTotal ? fmt(c.delegates + c.cancelTotal) + ' booked − ' + fmt(c.cancelTotal) + ' cancelled · ' : '') + fmt(c.groups) + ' groups', null, null, null, true));
     const notYet = c.delegates - c.arrived;
     k.appendChild(tile('Arrived', fmt(c.arrived), c.arrived ? pct(c.arrived, c.delegates) + '% · ' + fmt(notYet) + ' not yet arrived' : 'No arrivals recorded yet', c.arrived ? 'good' : null, null, pct(c.arrived, c.delegates)));
     k.appendChild(tile('Welcome kits given', fmt(c.welcomeKits), c.arrivedNoKit ? fmt(c.arrivedNoKit) + ' arrived, no kit yet' : (c.arrived ? 'Every arrival has a kit' : 'Tracked as kits are handed out'), c.arrivedNoKit ? 'warn' : (c.arrived ? 'good' : null), c.arrivedNoKit ? 'warn' : (c.arrived ? 'ok' : null), c.welcomeKits ? pct(c.welcomeKits, c.delegates) : null));
@@ -796,25 +796,25 @@
   function renderHotels() {
     const box = $('#viz-hotels');
     if (tableMode.hotels) {
-      const head = [{ label: 'Hotel' }, { label: 'Delegates', num: true }, { label: 'Arrived', num: true }, { label: '% arrived', num: true }, { label: 'Kits given', num: true }, { label: 'Groups', num: true }, { label: 'Minors', num: true }, { label: 'SFTS', num: true }, { label: 'SFTS special rooming in-house', num: true }, { label: 'Late-night', num: true }, { label: 'Before check-in', num: true }, { label: 'Cancelled', num: true }, { label: 'List last saved' }];
+      const head = [{ label: 'Hotel' }, { label: 'Total booked', num: true }, { label: 'Cancelled', num: true }, { label: 'Expected', num: true }, { label: 'Arrived', num: true }, { label: '% arrived', num: true }, { label: 'Kits given', num: true }, { label: 'Groups', num: true }, { label: 'Minors', num: true }, { label: 'SFTS', num: true }, { label: 'SFTS special rooming in-house', num: true }, { label: 'Late-night', num: true }, { label: 'Before check-in', num: true }, { label: 'List last saved' }];
       box.textContent = '';
       const wrap = document.createElement('div'); wrap.className = 'tbl'; const t = document.createElement('table');
       const th = document.createElement('thead'); const trh = document.createElement('tr'); head.forEach(h => { const c = document.createElement('th'); c.textContent = h.label; if (h.num) c.className = 'num'; trh.appendChild(c); }); th.appendChild(trh); t.appendChild(th);
       const tb = document.createElement('tbody');
       D.hotels.forEach(h => {
         const tr = document.createElement('tr'); tr.className = 'clickable' + (h.key === hotelKey ? ' selected' : ''); tr.tabIndex = 0;
-        const vals = [h.name, h.delegates, h.arrived, pct(h.arrived, h.delegates) + '%', h.welcomeKits, h.groups, h.minors, h.sfts, (h.sftsSpecialRooming ? fmt(h.sftsSpecialRoomingArrived || 0) + ' / ' + fmt(h.sftsSpecialRooming) : '–'), h.lateNight, h.gap1plus, h.cancelled, savedText(h.savedAt)];
-        vals.forEach((v, i) => { const c = document.createElement('td'); if (head[i].num) c.className = 'num'; if (i === vals.length - 1 && savedAge(h.savedAt) >= 24) { const f = document.createElement('span'); f.className = 'flag'; f.appendChild(iconSvg('warn')); f.appendChild(document.createTextNode(v)); c.appendChild(f); } else if (i === 6 && h.minorsNoAdult) { const f = document.createElement('span'); f.className = 'flag'; f.appendChild(iconSvg('warn')); f.appendChild(document.createTextNode(fmt(v) + ' (' + h.minorsNoAdult + ' no adult)')); c.appendChild(f); } else c.textContent = typeof v === 'number' ? fmt(v) : v; tr.appendChild(c); });
+        const vals = [h.name, h.delegates + (h.cancelTotal || 0), h.cancelTotal || 0, h.delegates, h.arrived, pct(h.arrived, h.delegates) + '%', h.welcomeKits, h.groups, h.minors, h.sfts, (h.sftsSpecialRooming ? fmt(h.sftsSpecialRoomingArrived || 0) + ' / ' + fmt(h.sftsSpecialRooming) : '–'), h.lateNight, h.gap1plus, savedText(h.savedAt)];
+        vals.forEach((v, i) => { const c = document.createElement('td'); if (head[i].num) c.className = 'num'; if (i === vals.length - 1 && savedAge(h.savedAt) >= 24) { const f = document.createElement('span'); f.className = 'flag'; f.appendChild(iconSvg('warn')); f.appendChild(document.createTextNode(v)); c.appendChild(f); } else if (i === 8 && h.minorsNoAdult) { const f = document.createElement('span'); f.className = 'flag'; f.appendChild(iconSvg('warn')); f.appendChild(document.createTextNode(fmt(v) + ' (' + h.minorsNoAdult + ' no adult)')); c.appendChild(f); } else c.textContent = typeof v === 'number' ? fmt(v) : v; tr.appendChild(c); });
         tr.addEventListener('click', () => setHotel(h.key)); tr.addEventListener('keydown', e => { if (e.key === 'Enter') setHotel(h.key); });
         tb.appendChild(tr);
       });
       t.appendChild(tb);
       const o = D.overall; const tf = document.createElement('tfoot'); const tr = document.createElement('tr');
-      ['All hotels', o.delegates, o.arrived, pct(o.arrived, o.delegates) + '%', o.welcomeKits, o.groups, o.minors, o.sfts, (o.sftsSpecialRooming ? fmt(o.sftsSpecialRoomingArrived || 0) + ' / ' + fmt(o.sftsSpecialRooming) : '–'), o.lateNight, o.gap1plus, o.cancelled, ''].forEach((v, i) => { const c = document.createElement('td'); if (head[i].num) c.className = 'num'; c.textContent = typeof v === 'number' ? fmt(v) : v; tr.appendChild(c); });
+      ['All hotels', o.delegates + (o.cancelTotal || 0), o.cancelTotal || 0, o.delegates, o.arrived, pct(o.arrived, o.delegates) + '%', o.welcomeKits, o.groups, o.minors, o.sfts, (o.sftsSpecialRooming ? fmt(o.sftsSpecialRoomingArrived || 0) + ' / ' + fmt(o.sftsSpecialRooming) : '–'), o.lateNight, o.gap1plus, ''].forEach((v, i) => { const c = document.createElement('td'); if (head[i].num) c.className = 'num'; c.textContent = typeof v === 'number' ? fmt(v) : v; tr.appendChild(c); });
       tf.appendChild(tr); t.appendChild(tf); wrap.appendChild(t); box.appendChild(wrap);
       return;
     }
-    hbarChart(box, D.hotels.map(h => ({ key: h.key, label: h.name, value: h.delegates, overlay: h.arrived, rows: [['Expected', fmt(h.delegates)], ['Arrived', fmt(h.arrived) + ' (' + pct(h.arrived, h.delegates) + '%)'], ['Welcome kits', fmt(h.welcomeKits)], ['Groups', fmt(h.groups)], ['Minors', fmt(h.minors)], ['Late-night arrivals', fmt(h.lateNight)], ['List last saved', savedText(h.savedAt)]] })),
+    hbarChart(box, D.hotels.map(h => ({ key: h.key, label: h.name, value: h.delegates, overlay: h.arrived, rows: [['Total booked', fmt(h.delegates + (h.cancelTotal || 0))], ['Cancelled', fmt(h.cancelTotal || 0)], ['Expected', fmt(h.delegates)], ['Arrived', fmt(h.arrived) + ' (' + pct(h.arrived, h.delegates) + '%)'], ['Welcome kits', fmt(h.welcomeKits)], ['Groups', fmt(h.groups)], ['Minors', fmt(h.minors)], ['Late-night arrivals', fmt(h.lateNight)], ['List last saved', savedText(h.savedAt)]] })),
       { emphasisKey: hotelKey === 'all' ? null : hotelKey, rowH: 28, onClick: it => setHotel(it.key === hotelKey ? 'all' : it.key) });
     const lg = document.createElement('div'); lg.className = 'legend';
     [['var(--series-1)', 'Expected'], ['var(--heat-6)', 'Arrived']].forEach(([c, n]) => { const s = document.createElement('span'); const i = document.createElement('i'); i.style.background = c; s.appendChild(i); s.appendChild(document.createTextNode(n)); lg.appendChild(s); });
